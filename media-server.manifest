@@ -3,6 +3,7 @@
 		<domain name="media-server" policy="restricted" plist="media-thumbnail-server, media-data"/>
 		<request>
 			<smack request="system::media" type="rwxat"/>
+			<smack request="deviced" type="rwx"/>
 		</request>
 	</define>
 	<request>

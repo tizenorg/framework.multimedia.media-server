@@ -273,6 +273,7 @@ int media_db_update_send(int pid, /* mandatory */
 										DBUS_TYPE_INVALID);
 			} else {
 				MSAPI_DBG_ERR("uuid or mime_type is NULL");
+				dbus_connection_unref(bus);
 				return MS_MEDIA_ERR_INVALID_PARAMETER;
 			}
 		} else if (item == MS_MEDIA_ITEM_DIRECTORY) {
@@ -310,6 +311,8 @@ int media_db_update_send(int pid, /* mandatory */
 	} else {
 		MSAPI_DBG_ERR("dbus_message_new_signal failed");
 	}
+
+	dbus_connection_unref(bus);
 
 	/* Return TRUE to tell the event loop we want to be called again */
 	return MS_MEDIA_ERR_NONE;

@@ -8,6 +8,7 @@ Source0:    %{name}-%{version}.tar.gz
 Source1:    media-server.service
 
 Requires(post): /usr/bin/vconftool
+Requires: system-server
 BuildRequires:  pkgconfig(glib-2.0)
 BuildRequires:  pkgconfig(vconf)
 BuildRequires:  pkgconfig(dlog)
