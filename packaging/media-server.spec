@@ -1,6 +1,6 @@
 Name:       media-server
 Summary:    File manager service server.
-Version: 0.2.46
+Version: 0.2.47
 Release:    1
 Group:      utils
 License:    Apache License, Version 2.0
@@ -63,11 +63,9 @@ mkdir -p %{buildroot}/%{_datadir}/license
 cp -rf %{_builddir}/%{name}-%{version}/LICENSE.APLv2.0 %{buildroot}/%{_datadir}/license/%{name}
 
 %post
-vconftool set -t int db/filemanager/dbupdate "1" -f
-vconftool set -t int memory/filemanager/Mmc "0" -i -f
-vconftool set -t string db/private/mediaserver/mmc_info "" -f
-vconftool set -t int file/private/mediaserver/scan_internal "1" -f
-vconftool set -t int file/private/mediaserver/scan_directory "1" -f
+vconftool set -t int db/filemanager/dbupdate "1" -f -s system::vconf_inhouse
+vconftool set -t int memory/filemanager/Mmc "0" -i -f -s system::vconf_inhouse
+vconftool set -t string db/private/mediaserver/mmc_info "" -f -s media-server::vconf
 
 %files
 %manifest media-server.manifest
