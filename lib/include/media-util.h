@@ -33,6 +33,7 @@
 #define MEDIA_ROOT_PATH_INTERNAL	MOUNT_PATH"/media"
 #define MEDIA_ROOT_PATH_SDCARD	"/opt/storage/sdcard"
 #define MEDIA_DATA_PATH			MOUNT_PATH"/data/file-manager-service"
+#define MEDIA_THUMB_ROOT_PATH       MOUNT_PATH"/media"
 #define MEDIA_DB_NAME				MOUNT_PATH"/dbspace/.media.db"		/**<  media db name*/
 
 #endif /*_MEDIA_UTIL_H_*/

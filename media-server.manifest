@@ -1,6 +1,6 @@
 <manifest>
 	<define>
-		<domain name="media-server" policy="restricted" plist="media-thumbnail-server, media-data"/>
+		<domain name="media-server" policy="restricted" plist="media-thumbnail-server, media-data-sdk"/>
 		<provide>
 			<label name="media-server::vconf"/>
 		</provide>
