@@ -6,6 +6,7 @@
 		</provide>
 		<request>
 			<smack request="system::media" type="rwxat"/>
+			<smack request="system::ext_storage" type="rwxat"/>
 			<smack request="system::vconf" type="rwxat"/>
 			<smack request="system::vconf_system" type="r"/>
 			<smack request="deviced" type="rwx"/>
