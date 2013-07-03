@@ -1,6 +1,6 @@
 Name:       media-server
 Summary:    File manager service server.
-Version: 0.2.49
+Version: 0.2.50
 Release:    1
 Group:      utils
 License:    Apache License, Version 2.0
@@ -12,7 +12,6 @@ Requires: system-server
 BuildRequires:  pkgconfig(glib-2.0)
 BuildRequires:  pkgconfig(vconf)
 BuildRequires:  pkgconfig(dlog)
-BuildRequires:  pkgconfig(drm-client)
 BuildRequires:  pkgconfig(aul)
 BuildRequires:  pkgconfig(pmapi)
 BuildRequires:  pkgconfig(heynoti)
@@ -20,6 +19,8 @@ BuildRequires:  pkgconfig(dbus-glib-1)
 BuildRequires:  pkgconfig(sqlite3)
 BuildRequires:  pkgconfig(db-util)
 BuildRequires:  pkgconfig(notification)
+BuildRequires:  pkgconfig(security-server)
+
 
 %description
 Description: File manager service server

@@ -53,6 +53,7 @@ typedef struct media_callback_data{
 	GSource *source;
 	scan_complete_cb user_callback;
 	void *user_data;
+	char *sock_path;
 } media_callback_data;
 
 static bool _is_valid_path(const char *path)
@@ -112,8 +113,9 @@ gboolean _read_socket(GIOChannel *src, GIOCondition condition, gpointer data)
 	void *user_data = NULL;
 	ms_comm_msg_s recv_msg;
 	media_request_result_s req_result;
-	int ret;
 	int sockfd = -1;
+	char *sock_path = NULL;
+	int recv_msg_size = 0;
 
 	sockfd = g_io_channel_unix_get_fd(src);
 	if (sockfd < 0) {
@@ -122,15 +124,17 @@ gboolean _read_socket(GIOChannel *src, GIOCondition condition, gpointer data)
 	}
 
 	memset(&recv_msg, 0x0, sizeof(ms_comm_msg_s));
+	memset(&req_result, 0x0, sizeof(media_request_result_s));
 
-	/* Socket is readable */
-	ret = ms_ipc_receive_message(sockfd, &recv_msg, sizeof(recv_msg), NULL, NULL);
-	if (ret != MS_MEDIA_ERR_NONE) {
-		MSAPI_DBG("ms_ipc_receive_message failed");
-		return TRUE;
+	if ((recv_msg_size = read(sockfd, &recv_msg, sizeof(ms_comm_msg_s))) < 0) {
+		MSAPI_DBG_ERR("recv failed : %s", strerror(errno));
+		req_result.pid = -1;
+		req_result.result = MS_MEDIA_ERR_SOCKET_RECEIVE;
+		req_result.complete_path = NULL;
+		req_result.request_type = -1;
+		goto ERROR;
 	}
 
-	memset(&req_result, 0x0, sizeof(media_request_result_s));
 	req_result.pid = recv_msg.pid;
 	req_result.result = recv_msg.result;
 	if (recv_msg.msg_type ==MS_MSG_SCANNER_RESULT) {
@@ -146,9 +150,11 @@ gboolean _read_socket(GIOChannel *src, GIOCondition condition, gpointer data)
 	MSAPI_DBG("result :%d", req_result.result);
 	MSAPI_DBG("request_type :%d", req_result.request_type);
 
+ERROR:
 	source = ((media_callback_data *)data)->source;
 	user_callback = ((media_callback_data *)data)->user_callback;
 	user_data = ((media_callback_data *)data)->user_data;
+	sock_path = ((media_callback_data *)data)->sock_path;
 
 	/*call user define function*/
 	user_callback(&req_result, user_data);
@@ -161,12 +167,17 @@ gboolean _read_socket(GIOChannel *src, GIOCondition condition, gpointer data)
 
 	g_source_destroy(source);
 	close(sockfd);
+	if (sock_path != NULL) {
+		MSAPI_DBG("delete path :%s", sock_path);
+		unlink(sock_path);
+		MS_SAFE_FREE(sock_path);
+	}
 	MS_SAFE_FREE(data);
 
 	return TRUE;
 }
 
-static int _attach_callback(int *sockfd, scan_complete_cb user_callback, void *user_data)
+static int _attach_callback(int *sockfd, char* sock_path, scan_complete_cb user_callback, void *user_data)
 {
 	GIOChannel *channel = NULL;
 	GMainContext *context = NULL;
@@ -184,6 +195,7 @@ static int _attach_callback(int *sockfd, scan_complete_cb user_callback, void *u
 	cb_data->source = source;
 	cb_data->user_callback = user_callback;
 	cb_data->user_data = user_data;
+	cb_data->sock_path = sock_path;
 
 	/* Set callback to be called when socket is readable */
 	g_source_set_callback(source, (GSourceFunc)_read_socket, cb_data, NULL);
@@ -200,7 +212,10 @@ static int __media_db_request_update_async(ms_msg_type_e msg_type, const char *r
 	int sockfd = -1;
 	int port = MS_SCANNER_PORT;
 	ms_comm_msg_s send_msg;
-
+	char *sock_path = NULL;
+#ifdef _USE_UDS_SOCKET_
+	ms_sock_info_s sock_info;
+#endif
 	if(!MS_STRING_VALID(request_msg))
 	{
 		MSAPI_DBG_ERR("invalid query");
@@ -226,20 +241,28 @@ static int __media_db_request_update_async(ms_msg_type_e msg_type, const char *r
 
 	/*Create Socket*/
 #ifdef _USE_UDS_SOCKET_
-	ret = ms_ipc_create_client_socket(MS_PROTOCOL_UDP, 0, &sockfd, port);
+	ret = ms_ipc_create_client_socket(MS_PROTOCOL_TCP, 0, &sock_info);
+	sockfd = sock_info.sock_fd;
+	if (sock_info.sock_path != NULL)
+		sock_path = sock_info.sock_path;
 #else
-	ret = ms_ipc_create_client_socket(MS_PROTOCOL_UDP, 0, &sockfd);
+	ret = ms_ipc_create_client_socket(MS_PROTOCOL_TCP, 0, &sockfd);
 #endif
+
 	MSAPI_RETV_IF(ret != MS_MEDIA_ERR_NONE, ret);
 
-	ret = ms_ipc_send_msg_to_server(sockfd, port, &send_msg, NULL);
+	ret = ms_ipc_send_msg_to_server_tcp(sockfd, port, &send_msg, NULL);
 	if (ret != MS_MEDIA_ERR_NONE) {
 		MSAPI_DBG_ERR("ms_ipc_send_msg_to_server failed : %d", ret);
+#ifdef _USE_UDS_SOCKET_
+		ms_ipc_delete_client_socket(&sock_info);
+#else
 		close(sockfd);
+#endif
 		return ret;
 	}
 
-	ret = _attach_callback(&sockfd, user_callback ,user_data);
+	ret = _attach_callback(&sockfd, sock_path, user_callback ,user_data);
 	if(ret != MS_MEDIA_ERR_NONE)
 		return ret;
 

@@ -46,11 +46,6 @@
 #define MS_STRING_VALID(str)	\
 	((str != NULL && strlen(str) > 0) ? TRUE : FALSE)
 
-#define MS_MEDIA_DBUS_PATH "/com/mediaserver/dbus/notify"
-#define MS_MEDIA_DBUS_INTERFACE "com.mediaserver.dbus.Signal"
-#define MS_MEDIA_DBUS_NAME "ms_db_updated"
-#define MS_MEDIA_DBUS_MATCH_RULE "type='signal',interface='com.mediaserver.dbus.Signal'"
-
 int media_db_update_db(MediaDBHandle *handle, const char *query_str);
 
 int media_db_update_db_batch_start(const char *query_str);

@@ -37,6 +37,8 @@
 #undef LOG_TAG
 #endif
 #define LOG_TAG "MEDIA_SCANNER"
+
+#define MSC_DBG_SLOG(fmt, args...)	SECURE_LOGD(fmt "\n", ##args);
 #define MSC_DBG_INFO(fmt, args...)        LOGD(fmt "\n" , ##args);
 #define MSC_DBG_ERR(fmt, args...) do{ if (true) { \
 		LOGE(fmt "\n", ##args); \

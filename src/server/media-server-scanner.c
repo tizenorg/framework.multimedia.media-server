@@ -23,6 +23,9 @@
 #include <unistd.h>
 #include <glib.h>
 #include <vconf.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <fcntl.h>
 
 #include "media-util.h"
 #include "media-server-ipc.h"
@@ -40,10 +43,7 @@ GMutex *scanner_mutex;
 
 static bool scanner_ready;
 static int alarm_id;
-static int receive_id;
 static int child_pid;
-
-
 
 static int _ms_check_remain_task(void)
 {
@@ -72,9 +72,7 @@ ms_db_status_type_t ms_check_scanning_status(void)
 
 static gboolean _ms_stop_scanner (gpointer user_data)
 {
-	int sockfd;
-	int task_num;
-	GIOChannel *src = user_data;
+	int task_num = MS_NO_REMAIN_TASK;
 
 	g_mutex_lock(scanner_mutex);
 
@@ -103,18 +101,17 @@ static gboolean _ms_stop_scanner (gpointer user_data)
 			return TRUE;
 		}
 	}
-	/* close socket */
-	sockfd = g_io_channel_unix_get_fd(src);
-	g_io_channel_shutdown(src, FALSE, NULL);
-	g_io_channel_unref(src);
-	close(sockfd);
+	MS_DBG("KILL SCANNER");
+	/* close FIFO */
+	unlink(MS_SCANNER_FIFO_PATH_RES);
+	unlink(MS_SCANNER_FIFO_PATH_REQ);
+
+//	ms_reset_scanner_status();
 
 	g_source_destroy(g_main_context_find_source_by_id(g_main_loop_get_context (mainloop), alarm_id));
-	g_source_destroy(g_main_context_find_source_by_id(g_main_loop_get_context (mainloop), receive_id));
 
 	return FALSE;
 }
-
 
 static void _ms_add_timeout(guint interval, GSourceFunc func, gpointer data)
 {
@@ -122,7 +119,7 @@ static void _ms_add_timeout(guint interval, GSourceFunc func, gpointer data)
 	GSource *src;
 
 	src = g_timeout_source_new_seconds(interval);
-	g_source_set_callback(src, func, data, NULL);
+	g_source_set_callback(src, func, NULL, NULL);
 	alarm_id = g_source_attach(src, g_main_loop_get_context (mainloop));
 	g_source_unref(src);
 }
@@ -142,96 +139,55 @@ ms_scanner_start(void)
 
 	if((pid = fork()) < 0) {
 		MS_DBG_ERR("Fork error\n");
+		g_mutex_unlock(scanner_mutex);
 	} else if (pid > 0) {
 		/* parent process */
 		/* wait until scanner is ready*/
 		int ret = MS_MEDIA_ERR_NONE;
-		int sockfd = -1;
 		int err = -1;
-		int n_reuse = 1;
-#ifdef _USE_UDS_SOCKET_
-		struct sockaddr_un serv_addr;
-#else
-		struct sockaddr_in serv_addr;
-#endif
-		unsigned int serv_addr_len = -1;
-		int port = MS_SCAN_COMM_PORT;
+		int fd = -1;
 		ms_comm_msg_s recv_msg;
+		int scanner_status = -1;
 
-		GSource *res_source = NULL;
-		GIOChannel *res_channel = NULL;
-		GMainContext *res_context = NULL;
+		err = unlink(MS_SCANNER_FIFO_PATH_RES);
+		if (err !=0) {
+			MS_DBG_ERR("unlink failed [%s]", strerror(errno));
+		}
+		err = mkfifo(MS_SCANNER_FIFO_PATH_RES, MS_SCANNER_FIFO_MODE);
+		if (err !=0) {
+			MS_DBG_ERR("mkfifo failed [%s]", strerror(errno));
+			return MS_MEDIA_ERR_MAKE_FIFO_FAIL;
+		}
 
-		/*Create Socket*/
-#ifdef _USE_UDS_SOCKET_
-		ret = ms_ipc_create_server_socket(MS_PROTOCOL_UDP, MS_SCAN_COMM_PORT, &sockfd);
-		if (ret != MS_MEDIA_ERR_NONE) {
-			MS_DBG_ERR("ms_ipc_create_server_socket failed [%d]",ret);
-			g_mutex_unlock(scanner_mutex);
-			return MS_MEDIA_ERR_SOCKET_CONN;
+		fd = open(MS_SCANNER_FIFO_PATH_RES, O_RDWR);
+		if (fd < 0) {
+			MS_DBG_ERR("fifo open failed [%s]", strerror(errno));
+			return MS_MEDIA_ERR_FILE_OPEN_FAIL;
 		}
-#else
-		ret = ms_ipc_create_client_socket(MS_PROTOCOL_UDP, MS_TIMEOUT_SEC_10, &sockfd);
-		if (ret != MS_MEDIA_ERR_NONE) {
-			MS_DBG_ERR("ms_ipc_create_client_socket failed [%d]",ret);
-			g_mutex_unlock(scanner_mutex);
-			return MS_MEDIA_ERR_SOCKET_CONN;
-		}
-		/* set socket re-use */
-		if (setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, &n_reuse, sizeof(n_reuse)) == -1) {
-			MS_DBG_ERR("setsockopt failed: %s", strerror(errno));
-			close(sockfd);
-			g_mutex_unlock(scanner_mutex);
-			return MS_MEDIA_ERR_SOCKET_INTERNAL;
-		}
-		/*Set server Address*/
-		memset(&serv_addr, 0, sizeof(serv_addr));
-		serv_addr.sin_family = AF_INET;
-		serv_addr.sin_addr.s_addr = inet_addr(SERVER_IP);
-		serv_addr.sin_port = htons(port);
-		/* Bind to the local address */
-		if (bind(sockfd, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) < 0) {
-			MS_DBG_ERR("bind failed [%s]", strerror(errno));
-			close(sockfd);
-			g_mutex_unlock(scanner_mutex);
-			return MS_MEDIA_ERR_SOCKET_BIND;
-		}
-#endif
 
-		/*Receive Response*/
-		serv_addr_len = sizeof(serv_addr);
-		err = ms_ipc_wait_message(sockfd, &recv_msg, sizeof(recv_msg), &serv_addr, NULL);
-		if (err != MS_MEDIA_ERR_NONE) {
-			ret = err;
-			close(sockfd);
+		/* read() is blocked until media scanner sends message */
+		err = read(fd, &recv_msg, sizeof(recv_msg));
+		if (err < 0) {
+			MS_DBG_ERR("fifo read failed [%s]", strerror(errno));
+			close(fd);
+			return MS_MEDIA_ERR_FILE_READ_FAIL;
+		}
+
+		scanner_status = recv_msg.msg_type;
+		if (scanner_status == MS_MSG_SCANNER_READY) {
+			MS_DBG_ERR("SCANNER is ready");
+			scanner_ready = true;
+			child_pid = pid;
+
+			_ms_add_timeout(30, (GSourceFunc)_ms_stop_scanner, NULL);
+
+			ret = MS_MEDIA_ERR_NONE;
 		} else {
-			int scanner_status = recv_msg.msg_type;
-			if (scanner_status == MS_MSG_SCANNER_READY) {
-				MS_DBG("RECEIVE OK [%d] %d", recv_msg.msg_type, pid);
-				scanner_ready = true;
-				child_pid = pid;
-
-				/* attach result receiving socket to mainloop */
-				res_context = g_main_loop_get_context(mainloop);
-
-				/* Create new channel to watch udp socket */
-				res_channel = g_io_channel_unix_new(sockfd);
-				res_source = g_io_create_watch(res_channel, G_IO_IN);
-
-				/* Set callback to be called when socket is readable */
-				g_source_set_callback(res_source, (GSourceFunc)ms_receive_message_from_scanner, NULL, NULL);
-				receive_id = g_source_attach(res_source, res_context);
-				g_source_unref(res_source);
-
-				_ms_add_timeout(30, (GSourceFunc)_ms_stop_scanner, res_channel);
-
-				ret = MS_MEDIA_ERR_NONE;
-			} else {
-				MS_DBG_ERR("Receive wrong message from scanner[%d]", scanner_status);
-				close(sockfd);
-				ret = MS_MEDIA_ERR_SOCKET_RECEIVE;
-			}
+			MS_DBG_ERR("SCANNER is not ready");
+			ret = MS_MEDIA_ERR_SCANNER_NOT_READY;
 		}
+		/*close pipe*/
+		close(fd);
 
 		g_mutex_unlock(scanner_mutex);
 

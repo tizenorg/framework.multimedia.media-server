@@ -38,7 +38,6 @@
 
 #include "media-util.h"
 #include "media-common-utils.h"
-#include "media-common-drm.h"
 #include "media-common-external-storage.h"
 #include "media-server-dbg.h"
 #include "media-server-db-svc.h"
@@ -115,9 +114,7 @@ void init_process()
 
 static void _power_off_cb(void* data)
 {
-	MS_DBG("++++++++++++++++++++++++++++++++++++++");
-	MS_DBG("POWER OFF");
-	MS_DBG("++++++++++++++++++++++++++++++++++++++");
+	MS_DBG_ERR("POWER OFF");
 
 	/*Quit Thumbnail Thread*/
 	GMainLoop *thumb_mainloop = ms_get_thumb_thread_mainloop();
@@ -167,24 +164,20 @@ static void _db_clear(void)
 
 void _ms_signal_handler(int n)
 {
-	MS_DBG("Receive SIGNAL");
 	int stat, pid, thumb_pid;
 	int scanner_pid;
 
 	thumb_pid = ms_thumb_get_server_pid();
-	MS_DBG("Thumbnail server pid : %d", thumb_pid);
-
 	scanner_pid = ms_get_scanner_pid();
 
 	pid = waitpid(-1, &stat, WNOHANG);
 	/* check pid of child process of thumbnail thread */
-	MS_DBG_ERR("[PID %d] signal ID %d", pid, n);
 
 	if (pid == thumb_pid) {
-		MS_DBG_ERR("Thumbnail server is dead");
+		MS_DBG_ERR("[%d] Thumbnail server is dead", pid);
 		ms_thumb_reset_server_status();
 	} else if (pid == scanner_pid) {
-		MS_DBG_ERR("Scanner is dead");
+		MS_DBG_ERR("[%d] Scanner is dead", pid);
 		ms_reset_scanner_status();
 	} else if (pid == -1) {
 		MS_DBG_ERR("%s", strerror(errno));
@@ -224,7 +217,7 @@ _ms_mmc_vconf_cb(void *data)
 		MS_DBG_ERR("Get VCONFKEY_SYSMAN_MMC_STATUS failed.");
 	}
 
-	MS_DBG("VCONFKEY_SYSMAN_MMC_STATUS :%d", status);
+	MS_DBG_ERR("CURRENT STATUS OF SD CARD[%d]", status);
 
 	/* If scanner is not working, media server executes media scanner and sends request. */
 	/* If scanner is working, it detects changing status of SD card. */
@@ -234,18 +227,12 @@ _ms_mmc_vconf_cb(void *data)
 		/*remove added watch descriptors */
 		ms_present_mmc_status(MS_SDCARD_REMOVED);
 
-		if (!ms_drm_extract_ext_memory())
-			MS_DBG_ERR("ms_drm_extract_ext_memory failed");
-
 		ms_send_storage_scan_request(MS_STORAGE_EXTERNAL, MS_SCAN_INVALID);
 	} else if (status == VCONFKEY_SYSMAN_MMC_MOUNTED) {
 
 		ms_make_default_path_mmc();
 
 		ms_present_mmc_status(MS_SDCARD_INSERTED);
-
-		if (!ms_drm_insert_ext_memory())
-			MS_DBG_ERR("ms_drm_insert_ext_memory failed");
 
 		ms_send_storage_scan_request(MS_STORAGE_EXTERNAL, ms_get_mmc_state());
 	}
@@ -280,22 +267,22 @@ int main(int argc, char **argv)
 
 	/*heynoti for power off*/
 	if ((heynoti_id = heynoti_init()) <0) {
-		MS_DBG("heynoti_init failed");
+		MS_DBG_ERR("heynoti_init failed");
 	} else {
 		err = heynoti_subscribe(heynoti_id, POWEROFF_NOTI_NAME, _power_off_cb, NULL);
 		if (err < 0)
-			MS_DBG("heynoti_subscribe failed");
+			MS_DBG_ERR("heynoti_subscribe failed");
 
 		err = heynoti_attach_handler(heynoti_id);
 		if (err < 0)
-			MS_DBG("heynoti_attach_handler failed");
+			MS_DBG_ERR("heynoti_attach_handler failed");
 	}
 
 	_ms_new_global_variable();
 
 	/*prepare socket*/
 	/* Create and bind new UDP socket */
-	if (ms_ipc_create_server_socket(MS_PROTOCOL_UDP, MS_SCANNER_PORT, &sockfd)
+	if (ms_ipc_create_server_socket(MS_PROTOCOL_TCP, MS_SCANNER_PORT, &sockfd)
 		!= MS_MEDIA_ERR_NONE) {
 		MS_DBG_ERR("Failed to create socket");
 	} else {
@@ -320,25 +307,20 @@ int main(int argc, char **argv)
 	if (err == -1)
 		MS_DBG_ERR("add call back function for event %s fails", VCONFKEY_SYSMAN_MMC_STATUS);
 
-	MS_DBG("*********************************************************");
-	MS_DBG("*** Begin to check tables of file manager in database ***");
-	MS_DBG("*********************************************************");
 
 	/* Add signal handler */
 	sigemptyset(&sigset.sa_mask);
 	sigaddset(&sigset.sa_mask, SIGCHLD);
-	sigset.sa_flags = 0;
+	sigset.sa_flags = SA_RESTART;
 	sigset.sa_handler = _ms_signal_handler;
 
 	if (sigaction(SIGCHLD, &sigset, NULL) < 0) {
 		MS_DBG_ERR("sigaction failed [%s]", strerror(errno));
-	} else {
-		MS_DBG("handler ok");
-	}
+	} 
 
 	/*clear previous data of sdcard on media database and check db status for updating*/
 	while(!ms_db_get_thread_status()) {
-		MS_DBG("wait db thread");
+		MS_DBG_ERR("wait db thread");
 		sleep(1);
 	}
 
@@ -347,9 +329,6 @@ int main(int argc, char **argv)
 	ms_send_storage_scan_request(MS_STORAGE_INTERNAL, MS_SCAN_PART);
 
 	if (ms_is_mmc_inserted()) {
-		if (!ms_drm_insert_ext_memory())
-			MS_DBG_ERR("ms_drm_insert_ext_memory failed");
-
 		ms_make_default_path_mmc();
 		ms_present_mmc_status(MS_SDCARD_INSERTED);
 
@@ -359,9 +338,7 @@ int main(int argc, char **argv)
 	/*Active flush */
 	malloc_trim(0);
 
-	MS_DBG("*****************************************");
-	MS_DBG("*** Server of File Manager is running ***");
-	MS_DBG("*****************************************");
+	MS_DBG_ERR("*** Media Server is running ***");
 
 	g_main_loop_run(mainloop);
 	g_thread_join(db_thread);

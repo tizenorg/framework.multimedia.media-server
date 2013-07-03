@@ -33,7 +33,6 @@
 #include "media-util.h"
 
 #include "media-common-utils.h"
-#include "media-common-drm.h"
 #include "media-server-dbg.h"
 #include "media-server-db-svc.h"
 

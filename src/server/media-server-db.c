@@ -68,22 +68,17 @@ gboolean ms_db_thread(void *data)
 		return FALSE;
 	}
 
-	/* Create Socket*/
-	ret = ms_ipc_create_server_socket(MS_PROTOCOL_UDP, MS_DB_UPDATE_PORT, &sockfd);
+	/* Create TCP Socket*/
+	ret = ms_ipc_create_server_socket(MS_PROTOCOL_TCP, MS_DB_UPDATE_PORT, &sockfd);
 	if(ret != MS_MEDIA_ERR_NONE) {
 		/* Disconnect DB*/
 		media_db_disconnect(db_handle);
-
 		MS_DBG_ERR("Failed to create socket\n");
 		return FALSE;
 	}
 
 	/* Create TCP Socket for batch query*/
-#ifdef _USE_UDS_SOCKET_TCP_
-	ret = ms_ipc_create_server_tcp_socket(MS_PROTOCOL_TCP, MS_DB_BATCH_UPDATE_TCP_PORT, &tcp_sockfd);
-#else
 	ret = ms_ipc_create_server_socket(MS_PROTOCOL_TCP, MS_DB_BATCH_UPDATE_PORT, &tcp_sockfd);
-#endif
 	if(ret != MS_MEDIA_ERR_NONE) {
 		/* Disconnect DB*/
 		media_db_disconnect(db_handle);
@@ -97,12 +92,12 @@ gboolean ms_db_thread(void *data)
 	g_db_mainloop = g_main_loop_new(context, FALSE);
 	//context = g_main_loop_get_context(g_db_mainloop);
 
-	/* Create new channel to watch udp socket */
+	/* Create new channel to watch UDP socket */
 	channel = g_io_channel_unix_new(sockfd);
 	source = g_io_create_watch(channel, G_IO_IN);
 
 	/* Set callback to be called when socket is readable */
-	g_source_set_callback(source, (GSourceFunc)ms_read_db_socket, db_handle, NULL);
+	g_source_set_callback(source, (GSourceFunc)ms_read_db_tcp_socket, db_handle, NULL);
 	g_source_attach(source, context);
 
 	/* Create new channel to watch TCP socket */
@@ -110,7 +105,7 @@ gboolean ms_db_thread(void *data)
 	tcp_source = g_io_create_watch(tcp_channel, G_IO_IN);
 
 	/* Set callback to be called when socket is readable */
-	g_source_set_callback(tcp_source, (GSourceFunc)ms_read_db_tcp_socket, db_handle, NULL);
+	g_source_set_callback(tcp_source, (GSourceFunc)ms_read_db_tcp_batch_socket, db_handle, NULL);
 	g_source_attach(tcp_source, context);
 
 	g_main_context_push_thread_default(context);

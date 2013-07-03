@@ -146,13 +146,13 @@ static int _ms_check_stop_status(ms_storage_type_t storage_type)
 
 	/*check poweroff status*/
 	if (power_off) {
-		MSC_DBG_INFO("Power off");
+		MSC_DBG_ERR("Power off");
 		ret = MS_MEDIA_ERR_SCANNER_FORCE_STOP;
 	}
 
 	/*check SD card in out */
 	if ((mmc_state != VCONFKEY_SYSMAN_MMC_MOUNTED) && (storage_type == MS_STORAGE_EXTERNAL)) {
-	    	MSC_DBG_INFO("Directory scanning is stopped");
+	    	MSC_DBG_ERR("Directory scanning is stopped");
 		ret = MS_MEDIA_ERR_SCANNER_FORCE_STOP;
 	}
 
@@ -175,7 +175,6 @@ static int _msc_dir_scan(void **handle, const char*start_path, ms_storage_type_t
 	GArray *dir_array = NULL;
 	struct dirent entry;
 	struct dirent *result = NULL;
-	int i;
 	int ret = MS_MEDIA_ERR_NONE;
 	char *new_path = NULL;
 	char *current_path = NULL;
@@ -267,13 +266,13 @@ STOP_SCAN:
 
 	/*delete all node*/
 	if(dir_array != NULL) {
-		for (i =0; i < dir_array->len; i++) {
+		while(dir_array->len != 0) {
 			char *data = NULL;
 			data = g_array_index(dir_array , char*, 0);
 			g_array_remove_index (dir_array, 0);
 			MS_SAFE_FREE(data);
 		}
-		g_array_free (dir_array, TRUE);
+		g_array_free (dir_array, FALSE);
 		dir_array = NULL;
 	}
 
@@ -314,8 +313,6 @@ static int _msc_db_update(void **handle, const ms_comm_msg_s * scan_data)
 
 	sync();
 
-	MSC_DBG_INFO("ret : %d", err);
-
 	return err;
 }
 
@@ -332,11 +329,11 @@ gboolean msc_directory_scan_thread(void *data)
 	while (1) {
 		scan_data = g_async_queue_pop(scan_queue);
 		if (scan_data->pid == POWEROFF) {
-			MSC_DBG_INFO("power off");
+			MSC_DBG_ERR("power off");
 			goto _POWEROFF;
 		}
 
-		MSC_DBG_INFO("DIRECTORY SCAN START");
+		MSC_DBG_ERR("DIRECTORY SCAN START [%s]", scan_data->msg);
 
 		/*connect to media db, if conneting is failed, db updating is stopped*/
 		err = msc_connect_db(&handle);
@@ -409,7 +406,7 @@ NEXT:
 
 		MS_SAFE_FREE(scan_data);
 
-		MSC_DBG_INFO("DIRECTORY SCAN END");
+		MSC_DBG_ERR("DIRECTORY SCAN END [%d]", ret);
 	}			/*thread while*/
 
 _POWEROFF:
@@ -434,11 +431,11 @@ gboolean msc_storage_scan_thread(void *data)
 	while (1) {
 		scan_data = g_async_queue_pop(storage_queue);
 		if (scan_data->pid == POWEROFF) {
-			MSC_DBG_INFO("power off");
+			MSC_DBG_ERR("power off");
 			goto _POWEROFF;
 		}
 
-		MSC_DBG_INFO("STORAGE SCAN START");
+		MSC_DBG_ERR("STORAGE SCAN START [%s]", scan_data->msg);
 
 		scan_type = scan_data->msg_type;
 		if (scan_type != MS_MSG_STORAGE_ALL
@@ -450,7 +447,6 @@ gboolean msc_storage_scan_thread(void *data)
 		}
 
 		storage_type = ms_get_storage_type_by_full(scan_data->msg);
-		MSC_DBG_INFO("%d", storage_type);
 
 		/*connect to media db, if conneting is failed, db updating is stopped*/
 		err = msc_connect_db(&handle);
@@ -533,7 +529,7 @@ NEXT:
 
 		MS_SAFE_FREE(scan_data);
 
-		MSC_DBG_INFO("STORAGE SCAN END");
+		MSC_DBG_ERR("STORAGE SCAN END[%d]", ret);
 	}			/*thread while*/
 
 _POWEROFF:
@@ -643,7 +639,7 @@ gboolean msc_register_thread(void *data)
 			register_data = g_array_index(register_array, ms_comm_msg_s*, 0);
 			g_array_remove_index (register_array, 0);
 			if (register_data->pid == POWEROFF) {
-				MSC_DBG_INFO("power off");
+				MSC_DBG_ERR("power off");
 				goto _POWEROFF;
 			}
 		} else if (length != 0) {
@@ -685,7 +681,6 @@ gboolean msc_register_thread(void *data)
 		while(fgets(buf, MS_FILE_PATH_LEN_MAX, fp) != NULL) {
 			length = strlen(buf); /*the return value of function, strlen(), includes "\n" */
 			path = strndup(buf, length - 1); /*copying except "\n" and strndup fuction adds "\0" at the end of the copying string */
-			MSC_DBG_INFO("insert path : %s [%d]", path, strlen(path));
 			/* insert getted path to the list */
 			if (g_array_append_val(path_array, path)  == NULL) {
 				MSC_DBG_ERR("g_array_append_val failed");
@@ -713,6 +708,8 @@ gboolean msc_register_thread(void *data)
 			goto FREE_RESOURCE;
 		}
 
+		MSC_DBG_ERR("BULK REGISTER START [%s]", register_data->msg);
+
 		/* get the inserting file path from array  and insert to db */
 		for (i = 0; i < path_array->len; i++) {
 
@@ -723,7 +720,7 @@ gboolean msc_register_thread(void *data)
 			/* it is really regular file */
 			ret = _check_file_path(insert_path);
 			if (ret != MS_MEDIA_ERR_NONE) {
-				MSC_DBG_ERR("Can't insert the meta of the path");
+				MSC_DBG_ERR("Can't insert the meta of the path[%s]", insert_path);
 				continue;
 			}
 
@@ -731,7 +728,7 @@ gboolean msc_register_thread(void *data)
 			err = insert_function(handle, insert_path);
 
 			if (power_off) {
-				MSC_DBG_INFO("power off");
+				MSC_DBG_ERR("power off");
 				/*call for bundle commit*/
 				msc_register_end(handle);
 				goto _POWEROFF;
@@ -749,9 +746,17 @@ gboolean msc_register_thread(void *data)
 
 		/* If register_files operation is stopped, there is no necessrty for sending result. */
 		msc_send_register_result(MS_MEDIA_ERR_NONE, register_data);
+
+		MSC_DBG_ERR("BULK REGISTER END[%s]", register_data->msg);
 FREE_RESOURCE:
 		if (path_array) {
-			g_array_free(path_array, TRUE);
+			while(path_array->len != 0) {
+				char *data = NULL;
+				data = g_array_index(path_array , char*, 0);
+				g_array_remove_index (path_array, 0);
+				MS_SAFE_FREE(data);
+			}
+			g_array_free(path_array, FALSE);
 			path_array = NULL;
 		}
 
@@ -768,8 +773,27 @@ FREE_RESOURCE:
 _POWEROFF:
 	MS_SAFE_FREE(file_path);
 	MS_SAFE_FREE(register_data);
-	if (register_array) g_array_free (register_array, TRUE);
-	if (path_array) g_array_free (path_array, TRUE);
+	if (register_array) {
+		while(register_array->len != 0) {
+			ms_comm_msg_s *data = NULL;
+			data = g_array_index(register_array , ms_comm_msg_s*, 0);
+			g_array_remove_index (register_array, 0);
+			MS_SAFE_FREE(data);
+		}
+		g_array_free (register_array, FALSE);
+		register_array = NULL;
+	}
+
+	if (path_array) {
+		while(path_array->len != 0) {
+			char *data = NULL;
+			data = g_array_index(path_array , char*, 0);
+			g_array_remove_index (path_array, 0);
+			MS_SAFE_FREE(data);
+		}
+		g_array_free(path_array, FALSE);
+		path_array = NULL;
+	}
 	if (handle) msc_disconnect_db(&handle);
 
 	if(fp) fclose(fp);

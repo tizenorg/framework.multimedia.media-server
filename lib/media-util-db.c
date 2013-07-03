@@ -45,7 +45,7 @@ static int __media_db_connect_db_with_handle(sqlite3 **db_handle);
 static int __media_db_disconnect_db_with_handle(sqlite3 *db_handle);
 static int __media_db_request_update(ms_msg_type_e msg_type, const char *request_msg);
 
-void __media_db_destroy_sql_list()
+static void __media_db_destroy_sql_list()
 {
 	int i = 0;
 
@@ -126,6 +126,7 @@ static int __media_db_request_update(ms_msg_type_e msg_type, const char *request
 	int sockfd = -1;
 	int err = -1;
 #ifdef _USE_UDS_SOCKET_
+	ms_sock_info_s sock_info;
 	struct sockaddr_un serv_addr;
 #else
 	struct sockaddr_in serv_addr;
@@ -162,19 +163,23 @@ static int __media_db_request_update(ms_msg_type_e msg_type, const char *request
 
 	/*Create Socket*/
 #ifdef _USE_UDS_SOCKET_
-	ret = ms_ipc_create_client_socket(MS_PROTOCOL_UDP, MS_TIMEOUT_SEC_10, &sockfd, port);
+	ret = ms_ipc_create_client_socket(MS_PROTOCOL_TCP, MS_TIMEOUT_SEC_10, &sock_info);
+	sockfd = sock_info.sock_fd;
 #else
-	ret = ms_ipc_create_client_socket(MS_PROTOCOL_UDP, MS_TIMEOUT_SEC_10, &sockfd);
+	ret = ms_ipc_create_client_socket(MS_PROTOCOL_TCP, MS_TIMEOUT_SEC_10, &sockfd);
 #endif
 	MSAPI_RETV_IF(ret != MS_MEDIA_ERR_NONE, ret);
 
-	ret = ms_ipc_send_msg_to_server(sockfd, port, &send_msg, &serv_addr);
+	ret = ms_ipc_send_msg_to_server_tcp(sockfd, port, &send_msg, &serv_addr);
 	if (ret != MS_MEDIA_ERR_NONE) {
 		MSAPI_DBG_ERR("ms_ipc_send_msg_to_server failed : %d", ret);
+#ifdef _USE_UDS_SOCKET_
+		ms_ipc_delete_client_socket(&sock_info);
+#else
 		close(sockfd);
+#endif
 		return ret;
 	}
-
 
 	/*Receive Response*/
 	ms_comm_msg_s recv_msg;
@@ -189,42 +194,58 @@ static int __media_db_request_update(ms_msg_type_e msg_type, const char *request
 		ret = recv_msg.result;
 	}
 
+#ifdef _USE_UDS_SOCKET_
+	ms_ipc_delete_client_socket(&sock_info);
+#else
 	close(sockfd);
+#endif
 
 	return ret;
 }
 
-static int g_tcp_client_sock = -1;
-
-static int __media_db_get_client_tcp_sock()
-{
-	return g_tcp_client_sock;
-}
-
 #ifdef _USE_UDS_SOCKET_
-extern char MEDIA_IPC_PATH[][50];
-#elif defined(_USE_UDS_SOCKET_TCP_)
 extern char MEDIA_IPC_PATH[][50];
 #endif
 
-static int __media_db_prepare_tcp_client_socket()
+static int __media_db_request_update_tcp(ms_msg_type_e msg_type, const char *request_msg)
 {
 	int ret = MS_MEDIA_ERR_NONE;
+	int request_msg_size = 0;
 	int sockfd = -1;
 #ifdef _USE_UDS_SOCKET_
-	struct sockaddr_un serv_addr;
-#elif defined(_USE_UDS_SOCKET_TCP_)
+	ms_sock_info_s sock_info;
 	struct sockaddr_un serv_addr;
 #else
 	struct sockaddr_in serv_addr;
 #endif
-	int port = MS_DB_BATCH_UPDATE_PORT;
+	int port = MS_DB_UPDATE_PORT;
 
-	/*Create TCP Socket*/
+	if(!MS_STRING_VALID(request_msg))
+	{
+		MSAPI_DBG_ERR("invalid query");
+		return MS_MEDIA_ERR_INVALID_PARAMETER;
+	}
+
+	request_msg_size = strlen(request_msg);
+	if(request_msg_size >= MAX_MSG_SIZE)
+	{
+		MSAPI_DBG_ERR("Query is Too long. [%d] query size limit is [%d]", request_msg_size, MAX_MSG_SIZE);
+		return MS_MEDIA_ERR_INVALID_PARAMETER;
+	}
+
+//	MSAPI_DBG("querysize[%d] query[%s]", request_msg_size, request_msg);
+
+	ms_comm_msg_s send_msg;
+	memset((void *)&send_msg, 0, sizeof(ms_comm_msg_s));
+
+	send_msg.msg_type = msg_type;
+	send_msg.msg_size = request_msg_size;
+	strncpy(send_msg.msg, request_msg, request_msg_size);
+
+	/*Create Socket*/
 #ifdef _USE_UDS_SOCKET_
-	ret = ms_ipc_create_client_socket(MS_PROTOCOL_TCP, MS_TIMEOUT_SEC_10, &sockfd, 0);
-#elif defined(_USE_UDS_SOCKET_TCP_)
-	ret = ms_ipc_create_client_tcp_socket(MS_PROTOCOL_TCP, MS_TIMEOUT_SEC_10, &sockfd, MS_DB_BATCH_UPDATE_TCP_PORT);
+	ret = ms_ipc_create_client_socket(MS_PROTOCOL_TCP, MS_TIMEOUT_SEC_10, &sock_info);
+	sockfd = sock_info.sock_fd;
 #else
 	ret = ms_ipc_create_client_socket(MS_PROTOCOL_TCP, MS_TIMEOUT_SEC_10, &sockfd);
 #endif
@@ -236,14 +257,91 @@ static int __media_db_prepare_tcp_client_socket()
 	serv_addr.sun_family = AF_UNIX;
 	MSAPI_DBG("%s", MEDIA_IPC_PATH[port]);
 	strcpy(serv_addr.sun_path, MEDIA_IPC_PATH[port]);
-#elif defined(_USE_UDS_SOCKET_TCP_)
-	serv_addr.sun_family = AF_UNIX;
-	MSAPI_DBG("%s", MEDIA_IPC_PATH[MS_DB_BATCH_UPDATE_TCP_PORT]);
-	strcpy(serv_addr.sun_path, MEDIA_IPC_PATH[MS_DB_BATCH_UPDATE_TCP_PORT]);
 #else
 	serv_addr.sin_family = AF_INET;
-	serv_addr.sin_addr.s_addr = htonl(INADDR_ANY);
-	//serv_addr.sin_addr.s_addr = inet_addr(SERVER_IP);
+	serv_addr.sin_addr.s_addr = inet_addr(SERVER_IP);
+	serv_addr.sin_port = htons(port);
+#endif
+
+	/* Connecting to the media db server */
+	if (connect(sockfd, (struct sockaddr*)&serv_addr, sizeof(serv_addr)) < 0) {
+		MSAPI_DBG_ERR("connect error : %s", strerror(errno));
+		close(sockfd);
+		return MS_MEDIA_ERR_SOCKET_CONN;
+	}
+
+	MSAPI_DBG("Connected successfully");
+
+	/* Send request */
+	if (send(sockfd, &send_msg, sizeof(send_msg), 0) != sizeof(send_msg)) {
+		MSAPI_DBG_ERR("send failed : %s", strerror(errno));
+		close(sockfd);
+		return MS_MEDIA_ERR_SOCKET_SEND;
+	} else {
+		MSAPI_DBG("Sent successfully");
+	}
+
+	/*Receive Response*/
+	int recv_msg_size = -1;
+	int recv_msg = -1;
+	if ((recv_msg_size = recv(sockfd, &recv_msg, sizeof(recv_msg), 0)) < 0) {
+		MSAPI_DBG_ERR("recv failed : %s[%d]", strerror(errno), sockfd);
+
+		close(sockfd);
+		if (errno == EWOULDBLOCK) {
+			MSAPI_DBG_ERR("Timeout. Can't try any more");
+			return MS_MEDIA_ERR_SOCKET_RECEIVE_TIMEOUT;
+		} else {
+			MSAPI_DBG_ERR("recv failed : %s", strerror(errno));
+			return MS_MEDIA_ERR_SOCKET_RECEIVE;
+		}
+	}
+
+	MSAPI_DBG("RECEIVE OK [%d]", recv_msg);
+	ret = recv_msg;
+
+	close(sockfd);
+
+	return ret;
+}
+
+static __thread int g_tcp_client_sock = -1;
+
+static int __media_db_get_client_tcp_sock()
+{
+	return g_tcp_client_sock;
+}
+
+static int __media_db_prepare_tcp_client_socket()
+{
+	int ret = MS_MEDIA_ERR_NONE;
+	int sockfd = -1;
+#ifdef _USE_UDS_SOCKET_
+	ms_sock_info_s sock_info;
+	struct sockaddr_un serv_addr;
+#else
+	struct sockaddr_in serv_addr;
+#endif
+	int port = MS_DB_BATCH_UPDATE_PORT;
+
+	/*Create TCP Socket*/
+#ifdef _USE_UDS_SOCKET_
+	ret = ms_ipc_create_client_socket(MS_PROTOCOL_TCP, MS_TIMEOUT_SEC_10, &sock_info);
+	sockfd = sock_info.sock_fd;
+#else
+	ret = ms_ipc_create_client_socket(MS_PROTOCOL_TCP, MS_TIMEOUT_SEC_10, &sockfd);
+#endif
+	MSAPI_RETV_IF(ret != MS_MEDIA_ERR_NONE, ret);
+
+	/*Set server Address*/
+	memset(&serv_addr, 0, sizeof(serv_addr));
+#ifdef _USE_UDS_SOCKET_
+	serv_addr.sun_family = AF_UNIX;
+	MSAPI_DBG("%s", MEDIA_IPC_PATH[port]);
+	strcpy(serv_addr.sun_path, MEDIA_IPC_PATH[port]);
+#else
+	serv_addr.sin_family = AF_INET;
+	serv_addr.sin_addr.s_addr = inet_addr(SERVER_IP);
 	serv_addr.sin_port = htons(port);
 #endif
 
@@ -263,10 +361,15 @@ static int __media_db_prepare_tcp_client_socket()
 
 static int __media_db_close_tcp_client_socket()
 {
-	close(g_tcp_client_sock);
+	int ret = MS_MEDIA_ERR_NONE;
+
+	if (close(g_tcp_client_sock)<0) {
+		MSAPI_DBG_ERR("close failed [%s]", strerror(errno));
+		ret = MS_MEDIA_ERR_SOCKET_INTERNAL;
+	}
 	g_tcp_client_sock = -1;
 
-	return 0;
+	return ret;
 }
 
 static int __media_db_request_batch_update(ms_msg_type_e msg_type, const char *request_msg)
@@ -288,7 +391,7 @@ static int __media_db_request_batch_update(ms_msg_type_e msg_type, const char *r
 		return MS_MEDIA_ERR_INVALID_PARAMETER;
 	}
 
-	MSAPI_DBG("querysize[%d] query[%s]", request_msg_size, request_msg);
+	MSAPI_DBG_SLOG("querysize[%d] query[%s]", request_msg_size, request_msg);
 	ms_comm_msg_s send_msg;
 	memset((void *)&send_msg, 0, sizeof(ms_comm_msg_s));
 
@@ -304,7 +407,7 @@ static int __media_db_request_batch_update(ms_msg_type_e msg_type, const char *r
 	/* Send request */
 	if (send(sockfd, &send_msg, sizeof(send_msg), 0) != sizeof(send_msg)) {
 		MSAPI_DBG_ERR("send failed : %s", strerror(errno));
-		__media_db_close_tcp_client_socket(sockfd);
+		__media_db_close_tcp_client_socket();
 		return MS_MEDIA_ERR_SOCKET_SEND;
 	} else {
 		MSAPI_DBG("Sent successfully");
@@ -314,9 +417,9 @@ static int __media_db_request_batch_update(ms_msg_type_e msg_type, const char *r
 	int recv_msg_size = -1;
 	int recv_msg = -1;
 	if ((recv_msg_size = recv(sockfd, &recv_msg, sizeof(recv_msg), 0)) < 0) {
-		MSAPI_DBG_ERR("recv failed : %s", strerror(errno));
+		MSAPI_DBG_ERR("recv failed : %s[%d]", strerror(errno), sockfd);
 
-		__media_db_close_tcp_client_socket(sockfd);
+		__media_db_close_tcp_client_socket();
 		if (errno == EWOULDBLOCK) {
 			MSAPI_DBG_ERR("Timeout. Can't try any more");
 			return MS_MEDIA_ERR_SOCKET_RECEIVE_TIMEOUT;
@@ -337,7 +440,7 @@ static int _media_db_update_directly(sqlite3 *db_handle, const char *sql_str)
 	int ret = MS_MEDIA_ERR_NONE;
 	char *zErrMsg = NULL;
 
-	MSAPI_DBG_INFO("SQL = [%s]", sql_str);
+//	MSAPI_DBG_SLOG("SQL = [%s]", sql_str);
 
 	ret = sqlite3_exec(db_handle, sql_str, NULL, NULL, &zErrMsg);
 
@@ -345,6 +448,8 @@ static int _media_db_update_directly(sqlite3 *db_handle, const char *sql_str)
 		MSAPI_DBG_ERR("DB Update Fail SQL:%s [%s], err[%d]", sql_str, zErrMsg, ret);
 		if (ret == SQLITE_BUSY)
 			ret = MS_MEDIA_ERR_DB_BUSY_FAIL;
+		else if (ret == SQLITE_CONSTRAINT)
+			ret = MS_MEDIA_ERR_DB_CONSTRAINT_FAIL;
 		else
 			ret = MS_MEDIA_ERR_DB_UPDATE_FAIL;
 	} else {
@@ -390,7 +495,7 @@ int media_db_request_update_db(const char *query_str)
 
 	MSAPI_RETVM_IF(!MS_STRING_VALID(query_str), MS_MEDIA_ERR_INVALID_PARAMETER, "Invalid Query");
 
-	ret = __media_db_request_update(MS_MSG_DB_UPDATE, query_str);
+	ret = __media_db_request_update_tcp(MS_MSG_DB_UPDATE, query_str);
 
 	return ret;
 }
@@ -404,7 +509,6 @@ int media_db_request_update_db_batch_start(const char *query_str)
 	MSAPI_RETVM_IF(!MS_STRING_VALID(query_str), MS_MEDIA_ERR_INVALID_PARAMETER, "Invalid Query");
 
 	ret = __media_db_prepare_tcp_client_socket();
-
 	if (ret < MS_MEDIA_ERR_NONE) {
 		MSAPI_DBG_ERR("__media_db_prepare_tcp_client_socket failed : %d", ret);
 		__media_db_close_tcp_client_socket();
@@ -550,6 +654,15 @@ int media_db_update_db_batch_end(MediaDBHandle *handle, const char *query_str)
 			}
 		}
 	}
+
+	__media_db_destroy_sql_list();
+
+	return ret;
+}
+
+int media_db_request_update_db_batch_clear(void)
+{
+	int ret = MS_MEDIA_ERR_NONE;
 
 	__media_db_destroy_sql_list();
 

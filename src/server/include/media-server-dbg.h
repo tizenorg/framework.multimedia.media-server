@@ -39,10 +39,12 @@
 #endif
 #define LOG_TAG "MEDIA_SERVER"
 
+#define MS_DBG_SLOG(fmt, args...)	SECURE_LOGD(fmt "\n", ##args);
+
 #define MS_DBG(fmt, args...)        LOGD(fmt "\n", ##args);
 
 #define MS_DBG_INFO(fmt, args...) do{ if (true) { \
-		LOGE(fmt "\n" , ##args); \
+		LOGI(fmt "\n" , ##args); \
 		}} while(false)
 
 #define MS_DBG_WARN(fmt, args...) do{ if (true) { \

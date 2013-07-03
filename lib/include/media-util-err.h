@@ -40,6 +40,9 @@
 #define MS_MEDIA_ERR_ALLOCATE_MEMORY_FAIL 	-5   /**< exception of memory allocation */
 #define MS_MEDIA_ERR_DIR_OPEN_FAIL 			-6   /**< exception of dir open*/
 #define MS_MEDIA_ERR_FILE_OPEN_FAIL 			-7   /**< exception of file doesn't exist*/
+#define MS_MEDIA_ERR_FILE_READ_FAIL 			-8   /**< file reading fails */
+#define MS_MEDIA_ERR_FILE_WRITE_FAIL 			-9   /**< file writing fails */
+#define MS_MEDIA_ERR_MAKE_FIFO_FAIL			-10  /**< FIFO making fails */
 
 /*DB operation error*/
 #define MS_MEDIA_ERR_DB_CONNECT_FAIL 		-11  /**< connecting database fails */
@@ -49,6 +52,7 @@
 #define MS_MEDIA_ERR_DB_UPDATE_FAIL 			-15  /**< updating record fails */
 #define MS_MEDIA_ERR_DB_EXIST_ITEM_FAIL 		-16  /**< item does not exist */
 #define MS_MEDIA_ERR_DB_BUSY_FAIL 			-17  /**< DB Busy */
+#define MS_MEDIA_ERR_DB_CONSTRAINT_FAIL 		-18  /**< DB CONSTRAINT fails - In case of insert, the record already exists */
 
 /*DRM operation error*/
 #define MS_MEDIA_ERR_DRM_REGISTER_FAIL 		-21  /**< interting into drm db fails */
@@ -78,6 +82,8 @@
 #define MS_MEDIA_ERR_MIME_GET_FAIL			-53  /**< not media file*/
 #define MS_MEDIA_ERR_SCANNER_NOT_READY		-54  /**< not media file*/
 #define MS_MEDIA_ERR_DYNAMIC_LINK			-55
+#define MS_MEDIA_ERR_PERMISSION_DENIED			-56
+#define MS_MEDIA_ERR_INVALID_IPC_MESSAGE		-57
 
 #define MS_MEDIA_ERR_MAX						-999 /**< not media file*/
 

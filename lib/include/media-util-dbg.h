@@ -49,6 +49,8 @@
 #define FONT_COLOR_CYAN     "\033[36m"
 #define FONT_COLOR_GRAY     "\033[37m"
 
+#define MSAPI_DBG_SLOG(fmt, args...)	SECURE_LOGD(fmt "\n", ##args);
+
 #define MSAPI_DBG(fmt, arg...) do { \
 			LOGD(FONT_COLOR_RESET fmt, ##arg);     \
 		} while (0)

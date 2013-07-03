@@ -33,7 +33,6 @@
 #include "media-util.h"
 
 #include "media-common-utils.h"
-#include "media-common-drm.h"
 #include "media-scanner-dbg.h"
 #include "media-scanner-db-svc.h"
 
@@ -334,13 +333,11 @@ msc_validate_item(void **handle, const char *path)
 			/*check exist in Media DB, If file is not exist, insert data in DB. */
 			ret = ((CHECK_ITEM_EXIST)func_array[lib_index][eEXIST])(handle[lib_index], path, storage_type, &err_msg); /*dlopen*/
 			if (ret != 0) {
-				MSC_DBG_ERR("not exist in %d. insert data", lib_index);
 				MS_SAFE_FREE(err_msg);
 
 				ret = ((INSERT_ITEM)func_array[lib_index][eINSERT_BATCH])(handle[lib_index], path, storage_type, &err_msg); /*dlopen*/
 				if (ret != 0) {
 					MSC_DBG_ERR("error : %s [%s] %s", g_array_index(so_array, char*, lib_index), err_msg, path);
-					MSC_DBG_ERR("[%s]", path);
 					MS_SAFE_FREE(err_msg);
 					res = MS_MEDIA_ERR_DB_INSERT_FAIL;
 				} else {
@@ -351,19 +348,13 @@ msc_validate_item(void **handle, const char *path)
 				ret = ((SET_ITEM_VALIDITY)func_array[lib_index][eSET_VALIDITY])(handle[lib_index], path, true, true, &err_msg); /*dlopen*/
 				if (ret != 0) {
 					MSC_DBG_ERR("error : %s [%s] %s", g_array_index(so_array, char*, lib_index), err_msg, path);
-					MSC_DBG_ERR("[%s]", path);;
 					MS_SAFE_FREE(err_msg);
 					res = MS_MEDIA_ERR_DB_UPDATE_FAIL;
 				}
 			}
 		} else {
-			MSC_DBG_ERR("check category failed");
-			MSC_DBG_ERR("[%s]", path);
+			MSC_DBG_ERR("check category failed [%s]", path);
 		}
-	}
-
-	if (ms_is_drm_file(path)) {
-		ret = ms_drm_register(path);
 	}
 
 	return res;
@@ -404,20 +395,13 @@ msc_insert_item_batch(void **handle, const char *path)
 		if (!_msc_check_category(path, lib_index)) {
 			ret = ((INSERT_ITEM)func_array[lib_index][eINSERT_BATCH])(handle[lib_index], path, storage_type, &err_msg); /*dlopen*/
 			if (ret != 0) {
-				MSC_DBG_ERR("error : %s [%s]", g_array_index(so_array, char*, lib_index), err_msg);
-				MSC_DBG_ERR("[%s]", path);
+				MSC_DBG_ERR("error : %s [%s] %s", g_array_index(so_array, char*, lib_index), err_msg, path);
 				MS_SAFE_FREE(err_msg);
 				res = MS_MEDIA_ERR_DB_INSERT_FAIL;
 			}
 		} else {
-			MSC_DBG_ERR("check category failed");
-			MSC_DBG_ERR("[%s]", path);
+			MSC_DBG_ERR("check category failed [%s]", path);
 		}
-	}
-
-	if (ms_is_drm_file(path)) {
-		ret = ms_drm_register(path);
-		res = ret;
 	}
 
 	return res;
@@ -438,20 +422,13 @@ msc_insert_burst_item(void **handle, const char *path)
 		if (!_msc_check_category(path, lib_index)) {
 			ret = ((INSERT_BURST_ITEM)func_array[lib_index][eINSERT_BURST])(handle[lib_index], path, storage_type, &err_msg); /*dlopen*/
 			if (ret != 0) {
-				MSC_DBG_ERR("error : %s [%s]", g_array_index(so_array, char*, lib_index), err_msg);
-				MSC_DBG_ERR("[%s]", path);
+				MSC_DBG_ERR("error : %s [%s] %s", g_array_index(so_array, char*, lib_index), err_msg, path);
 				MS_SAFE_FREE(err_msg);
 				res = MS_MEDIA_ERR_DB_INSERT_FAIL;
 			}
 		} else {
-			MSC_DBG_ERR("check category failed");
-			MSC_DBG_ERR("[%s]", path);
+			MSC_DBG_ERR("check category failed [%s]", path);
 		}
-	}
-
-	if (ms_is_drm_file(path)) {
-		ret = ms_drm_register(path);
-		res = ret;
 	}
 
 	return res;

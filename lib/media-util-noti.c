@@ -40,11 +40,15 @@
 #include "media-util-internal.h"
 #include "media-util-dbg.h"
 #include "media-util.h"
+#include "media-util-noti.h"
 
 DBusConnection *g_bus;
 void *g_data_store;
-GMutex *noti_mutex = NULL;
+GArray *handle_list;
+static GStaticMutex noti_mutex = G_STATIC_MUTEX_INIT;
 int ref_count;
+
+#define MS_MEDIA_DBUS_NAME "ms_db_updated"
 
 typedef struct noti_callback_data{
 	db_update_cb user_callback;
@@ -58,12 +62,9 @@ __free_data_fuction(void *memory)
 	g_data_store = NULL;
 }
 
-static DBusHandlerResult
-__message_filter (DBusConnection *connection, DBusMessage *message, void *user_data)
+DBusHandlerResult
+__get_message(DBusMessage *message, db_update_cb user_cb, void *userdata)
 {
-	db_update_cb user_cb = ((noti_callback_data*)user_data)->user_callback;
-	void *userdata = ((noti_callback_data*)user_data)->user_data;
-
 	/* A Ping signal on the com.burtonini.dbus.Signal interface */
 	if (dbus_message_is_signal (message, MS_MEDIA_DBUS_INTERFACE, MS_MEDIA_DBUS_NAME)) {
 		int i = 0;
@@ -131,20 +132,26 @@ __message_filter (DBusConnection *connection, DBusMessage *message, void *user_d
 	return DBUS_HANDLER_RESULT_NOT_YET_HANDLED;
 }
 
+static DBusHandlerResult
+__message_filter (DBusConnection *connection, DBusMessage *message, void *user_data)
+{
+	db_update_cb user_cb = ((noti_callback_data*)user_data)->user_callback;
+	void *userdata = ((noti_callback_data*)user_data)->user_data;
+	DBusHandlerResult ret;
+
+	ret = __get_message(message, user_cb, userdata);
+
+	return ret;
+}
+
+
 int media_db_update_subscribe(db_update_cb user_cb, void *user_data)
 {
 	int ret = MS_MEDIA_ERR_NONE;
 	DBusError error;
 	noti_callback_data *callback_data = NULL;
 
-	if (noti_mutex == NULL) {
-		noti_mutex = g_mutex_new();
-		if (noti_mutex == NULL) {
-			return MS_MEDIA_ERR_ALLOCATE_MEMORY_FAIL;
-		}
-	}
-
-	g_mutex_lock(noti_mutex);
+	g_static_mutex_lock(&noti_mutex);
 
 	if (g_bus == NULL) {
 		dbus_g_thread_init();
@@ -182,7 +189,7 @@ int media_db_update_subscribe(db_update_cb user_cb, void *user_data)
 
 	ref_count ++;
 
-	g_mutex_unlock(noti_mutex);
+	g_static_mutex_unlock(&noti_mutex);
 
 	return MS_MEDIA_ERR_NONE;
 
@@ -194,9 +201,7 @@ ERROR:
 	}
 	MS_SAFE_FREE(callback_data);
 
-	g_mutex_unlock(noti_mutex);
-	g_mutex_free(noti_mutex);
-	noti_mutex = NULL;
+	g_static_mutex_unlock(&noti_mutex);
 
 	return ret;
 }
@@ -207,7 +212,7 @@ int media_db_update_unsubscribe(void)
 		return MS_MEDIA_ERR_NONE;
 	}
 
-	g_mutex_lock(noti_mutex);
+	g_static_mutex_lock(&noti_mutex);
 
 	if (ref_count == 1) {
 		dbus_connection_remove_filter(g_bus, __message_filter, g_data_store);
@@ -219,12 +224,7 @@ int media_db_update_unsubscribe(void)
 
 	ref_count --;
 
-	g_mutex_unlock(noti_mutex);
-
-	if (ref_count == 0) {
-		g_mutex_free(noti_mutex);
-		noti_mutex = NULL;
-	}
+	g_static_mutex_unlock(&noti_mutex);
 
 	return MS_MEDIA_ERR_NONE;
 }
@@ -238,8 +238,8 @@ int media_db_update_send(int pid, /* mandatory */
 							char *mime_type /* optional */
 							)
 {
-	DBusMessage *message;
-	DBusConnection *bus;
+	DBusMessage *message = NULL;
+	DBusConnection *bus = NULL;
 	DBusError error;
 	unsigned char *path_array = NULL;
 	int path_length = strlen(path) + 1;
@@ -273,7 +273,8 @@ int media_db_update_send(int pid, /* mandatory */
 										DBUS_TYPE_INVALID);
 			} else {
 				MSAPI_DBG_ERR("uuid or mime_type is NULL");
-				dbus_connection_unref(bus);
+				MS_SAFE_FREE(path_array);
+				dbus_message_unref (message);
 				return MS_MEDIA_ERR_INVALID_PARAMETER;
 			}
 		} else if (item == MS_MEDIA_ITEM_DIRECTORY) {

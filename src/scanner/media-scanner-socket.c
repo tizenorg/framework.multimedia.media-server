@@ -29,6 +29,9 @@
  */
 #include <arpa/inet.h>
 #include <sys/types.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <errno.h>
 #ifdef _USE_UDS_SOCKET_
 #include <sys/un.h>
 #else
@@ -56,7 +59,7 @@ gboolean msc_receive_request(GIOChannel *src, GIOCondition condition, gpointer d
 	int sockfd = MS_SOCK_NOT_ALLOCATE;
 	int req_num = MS_MSG_MAX;
 	int pid = -1;
-	int ret = MS_MEDIA_ERR_NONE;
+	int err = -1;
 
 	sockfd = g_io_channel_unix_get_fd(src);
 	if (sockfd < 0) {
@@ -70,11 +73,12 @@ gboolean msc_receive_request(GIOChannel *src, GIOCondition condition, gpointer d
 		return TRUE;
 	}
 
-	/* Socket is readable */
-	ret = ms_ipc_receive_message(sockfd, recv_msg, sizeof(*recv_msg), NULL, NULL);
-	if (ret != MS_MEDIA_ERR_NONE) {
+	/* read() is blocked until media scanner sends message */
+	err = read(sockfd, recv_msg, sizeof(ms_comm_msg_s));
+	if (err < 0) {
+		MSC_DBG_ERR("fifo read failed [%s]", strerror(errno));
 		MS_SAFE_FREE(recv_msg);
-		return TRUE;
+		return MS_MEDIA_ERR_FILE_READ_FAIL;
 	}
 
 	MSC_DBG_INFO("receive msg from [%d] %d, %s", recv_msg->pid, recv_msg->msg_type, recv_msg->msg);
@@ -115,9 +119,11 @@ int msc_send_scan_result(int result, ms_comm_msg_s *scan_data)
 
 	/*Create Socket*/
 #ifdef _USE_UDS_SOCKET_
-	ret = ms_ipc_create_client_socket(MS_PROTOCOL_UDP, 0, &sockfd, MS_SCAN_COMM_PORT);
+	ms_sock_info_s sock_info;
+	ret = ms_ipc_create_client_socket(MS_PROTOCOL_TCP, 0, &sock_info);
+	sockfd = sock_info.sock_fd;
 #else
-	ret = ms_ipc_create_client_socket(MS_PROTOCOL_UDP, 0, &sockfd);
+	ret = ms_ipc_create_client_socket(MS_PROTOCOL_TCP, 0, &sockfd);
 #endif
 	if (ret != MS_MEDIA_ERR_NONE)
 		return MS_MEDIA_ERR_SOCKET_CONN;
@@ -130,11 +136,15 @@ int msc_send_scan_result(int result, ms_comm_msg_s *scan_data)
 	send_msg.msg_size = strlen(scan_data->msg);
 	strncpy(send_msg.msg, scan_data->msg, send_msg.msg_size);
 
-	ret = ms_ipc_send_msg_to_server(sockfd, MS_SCAN_COMM_PORT, &send_msg, NULL);
+	ret = ms_ipc_send_msg_to_server_tcp(sockfd, MS_SCANNER_PORT, &send_msg, NULL);
 	if (ret != MS_MEDIA_ERR_NONE)
 		res = ret;
 
+#ifdef _USE_UDS_SOCKET_
+	ms_ipc_delete_client_socket(&sock_info);
+#else
 	close(sockfd);
+#endif
 
 	return res;
 }
@@ -147,14 +157,16 @@ int msc_send_register_result(int result, ms_comm_msg_s *reg_data)
 
 	/*Create Socket*/
 #ifdef _USE_UDS_SOCKET_
-	ret = ms_ipc_create_client_socket(MS_PROTOCOL_UDP, 0, &sockfd, MS_SCAN_COMM_PORT);
+	ms_sock_info_s sock_info;
+	ret = ms_ipc_create_client_socket(MS_PROTOCOL_TCP, 0, &sock_info);
+	sockfd = sock_info.sock_fd;
 #else
-	ret = ms_ipc_create_client_socket(MS_PROTOCOL_UDP, 0, &sockfd);
+	ret = ms_ipc_create_client_socket(MS_PROTOCOL_TCP, 0, &sockfd);
 #endif
 	if (ret != MS_MEDIA_ERR_NONE)
 		return MS_MEDIA_ERR_SOCKET_CONN;
 
-	/* send ready message */
+	/* send result message */
 	memset(&send_msg, 0x0, sizeof(ms_comm_msg_s));
 	send_msg.msg_type = MS_MSG_SCANNER_BULK_RESULT;
 	send_msg.pid = reg_data->pid;
@@ -162,38 +174,42 @@ int msc_send_register_result(int result, ms_comm_msg_s *reg_data)
 	send_msg.msg_size = reg_data->msg_size;
 	strncpy(send_msg.msg, reg_data->msg, send_msg.msg_size);
 
-	ret = ms_ipc_send_msg_to_server(sockfd, MS_SCAN_COMM_PORT, &send_msg, NULL);
+	ret = ms_ipc_send_msg_to_server_tcp(sockfd, MS_SCANNER_PORT, &send_msg, NULL);
 
+#ifdef _USE_UDS_SOCKET_
+	ms_ipc_delete_client_socket(&sock_info);
+#else
 	close(sockfd);
+#endif
 
 	return ret;
 }
 
 int msc_send_ready(void)
 {
-	int ret;
 	int res = MS_MEDIA_ERR_NONE;
-	int sockfd = -1;
 	ms_comm_msg_s send_msg;
+	int fd = -1;
+	int err = -1;
 
-	/*Create Socket*/
-#ifdef _USE_UDS_SOCKET_
-	ret = ms_ipc_create_client_socket(MS_PROTOCOL_UDP, 0, &sockfd, MS_SCAN_COMM_PORT);
-#else
-	ret = ms_ipc_create_client_socket(MS_PROTOCOL_UDP, 0, &sockfd);
-#endif
-	if (ret != MS_MEDIA_ERR_NONE)
-		return MS_MEDIA_ERR_SOCKET_CONN;
+	fd = open(MS_SCANNER_FIFO_PATH_RES, O_WRONLY);
+	if (fd < 0) {
+		MSC_DBG_ERR("fifo open failed", strerror(errno));
+		return MS_MEDIA_ERR_FILE_OPEN_FAIL;
+	}
 
 	/* send ready message */
 	memset(&send_msg, 0, sizeof(send_msg));
 	send_msg.msg_type = MS_MSG_SCANNER_READY;
-	
-	ret = ms_ipc_send_msg_to_server(sockfd, MS_SCAN_COMM_PORT, &send_msg, NULL);
-	if (ret != MS_MEDIA_ERR_NONE)
-		res = ret;
 
-	close(sockfd);
+	/* send ready message */
+	err = write(fd, &send_msg, sizeof(send_msg));
+	if (err < 0) {
+		MSC_DBG_ERR("fifo write failed", strerror(errno));
+		res = MS_MEDIA_ERR_FILE_READ_FAIL;
+	}
+
+	close(fd);
 
 	return res;
 }

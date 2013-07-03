@@ -50,6 +50,8 @@ int media_db_request_update_db_batch_end(const char *query_str);
 
 int media_db_request_directory_scan(const char *directory_path);
 
+int media_db_request_update_db_batch_clear(void);
+
 /**
 * @}
 */

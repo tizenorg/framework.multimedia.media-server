@@ -38,7 +38,6 @@
 typedef enum{
 	MS_DB_BATCH_UPDATE_PORT = 0,	/**< Media DB batch update */
 	MS_SCAN_DAEMON_PORT,		/**< Port of communication between scanner and server */
-	MS_SCAN_COMM_PORT,		/**< Port of communication between scanner and server */
 	MS_SCANNER_PORT,		/**< Directory Scanner */
 	MS_DB_UPDATE_PORT,		/**< Media DB Update */
 	MS_THUMB_CREATOR_PORT,	/**< Create thumbnail */
@@ -54,15 +53,6 @@ typedef enum{
 #define MS_THUMB_COMM_PORT 		1005		/**< Port of communication between creator and server */
 #define MS_DB_BATCH_UPDATE_PORT		1006	/**< Media DB batch update */
 #define MS_SCAN_DAEMON_PORT 	       1007		/**< Port of communication between scanner and server */
-#define MS_SCAN_COMM_PORT		       1008		/**< Port of communication between scanner and server */
-#endif
-
-#ifdef _USE_UDS_SOCKET_TCP_
-typedef enum{
-	MS_DB_BATCH_UPDATE_TCP_PORT = 0,	/**< Media DB batch update */
-	MS_THUMB_CREATOR_TCP_PORT,	/**< Create thumbnail */
-	MS_PORT_MAX,
-}ms_msg_port_type_e;
 #endif
 
 #define MAX_MSG_SIZE				4096
@@ -86,6 +76,18 @@ typedef enum{
 	MS_MSG_SCANNER_BULK_RESULT,			/**< Request bulk insert */
 	MS_MSG_MAX							/**< Invalid msg type */
 }ms_msg_type_e;
+
+#define MS_SCANNER_FIFO_PATH_REQ "/tmp/media-scanner-fifo-req"
+#define MS_SCANNER_FIFO_PATH_RES "/tmp/media-scanner-fifo-res"
+#define MS_SCANNER_FIFO_MODE 0666
+
+#ifdef _USE_UDS_SOCKET_
+typedef struct
+{
+	int sock_fd;
+	char *sock_path;
+}ms_sock_info_s;
+#endif
 
 typedef struct
 {

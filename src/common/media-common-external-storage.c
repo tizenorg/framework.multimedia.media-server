@@ -30,7 +30,6 @@
 #include "media-server-ipc.h"
 #include "media-common-dbg.h"
 #include "media-common-utils.h"
-#include "media-common-drm.h"
 #include "media-common-external-storage.h"
 
 #define MMC_INFO_SIZE 256

@@ -31,9 +31,12 @@
 #include <dirent.h>
 #include <vconf.h>
 #include <heynoti.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <errno.h>
 
 #include "media-common-utils.h"
-#include "media-common-drm.h"
 #include "media-common-external-storage.h"
 
 #include "media-util.h"
@@ -208,8 +211,8 @@ int main(int argc, char **argv)
 	GIOChannel *channel = NULL;
 	GMainContext *context = NULL;
 
-	int sockfd = -1;
-	int err;
+	int err = -1;
+	int fd = -1;
 
 #if 0 /* temporary */
 	check_result = check_process();
@@ -229,11 +232,11 @@ int main(int argc, char **argv)
 	} else {
 		err = heynoti_subscribe(heynoti_id, POWEROFF_NOTI_NAME, _power_off_cb, NULL);
 		if (err < 0)
-			MSC_DBG_INFO("heynoti_subscribe failed");
+			MSC_DBG_ERR("heynoti_subscribe failed");
 
 		err = heynoti_attach_handler(heynoti_id);
 		if (err < 0)
-			MSC_DBG_INFO("heynoti_attach_handler failed");
+			MSC_DBG_ERR("heynoti_attach_handler failed");
 	}
 
 	/*load functions from plusin(s)*/
@@ -252,24 +255,34 @@ int main(int argc, char **argv)
 	/*Init mutex variable*/
 	if (!db_mutex) db_mutex = g_mutex_new();
 
-	/*prepare socket*/
-	/* Create and bind new UDP socket */
-	if (ms_ipc_create_server_socket(MS_PROTOCOL_UDP, MS_SCAN_DAEMON_PORT, &sockfd)
-		!= MS_MEDIA_ERR_NONE) {
-		MSC_DBG_ERR("Failed to create socket\n");
-		exit(0);
-	} else {
-		context = g_main_loop_get_context(scanner_mainloop);
-
-		/* Create new channel to watch udp socket */
-		channel = g_io_channel_unix_new(sockfd);
-		source = g_io_create_watch(channel, G_IO_IN);
-
-		/* Set callback to be called when socket is readable */
-		g_source_set_callback(source, (GSourceFunc)msc_receive_request, NULL, NULL);
-		g_source_attach(source, context);
-		g_source_unref(source);
+	/* Create pipe */
+	err = unlink(MS_SCANNER_FIFO_PATH_REQ);
+	if (err !=0) {
+		MSC_DBG_ERR("unlink failed [%s]", strerror(errno));
 	}
+
+	err = mkfifo(MS_SCANNER_FIFO_PATH_REQ, MS_SCANNER_FIFO_MODE);
+	if (err !=0) {
+		MSC_DBG_ERR("mkfifo failed [%s]", strerror(errno));
+		return MS_MEDIA_ERR_MAKE_FIFO_FAIL;
+	}
+
+	fd = open(MS_SCANNER_FIFO_PATH_REQ, O_RDWR);
+	if (fd < 0) {
+		MSC_DBG_ERR("fifo open failed [%s]", strerror(errno));
+		return MS_MEDIA_ERR_FILE_OPEN_FAIL;
+	}
+
+	context = g_main_loop_get_context(scanner_mainloop);
+
+	/* Create new channel to watch pipe */
+	channel = g_io_channel_unix_new(fd);
+	source = g_io_create_watch(channel, G_IO_IN);
+
+	/* Set callback to be called when pipe is readable */
+	g_source_set_callback(source, (GSourceFunc)msc_receive_request, NULL, NULL);
+	g_source_attach(source, context);
+	g_source_unref(source);
 
 	/*create each threads*/
 	storage_scan_thread = g_thread_new("storage_scan_thread", (GThreadFunc)msc_storage_scan_thread, NULL);
@@ -289,9 +302,9 @@ int main(int argc, char **argv)
 
 	msc_send_ready();
 
-	MSC_DBG_INFO("*****************************************");
-	MSC_DBG_INFO("*** Scanner is running ***");
-	MSC_DBG_INFO("*****************************************");
+	MSC_DBG_ERR("*****************************************");
+	MSC_DBG_ERR("*** Scanner is running ***");
+	MSC_DBG_ERR("*****************************************");
 
 	g_main_loop_run(scanner_mainloop);
 
@@ -314,8 +327,8 @@ int main(int argc, char **argv)
 	/*Clear db mutex variable*/
 	if (db_mutex) g_mutex_free (db_mutex);
 
-	/*close socket*/
-	close(sockfd);
+	/*close pipe*/
+	close(fd);
 
 	/*unload functions*/
 	msc_unload_functions();
