@@ -476,6 +476,7 @@ gboolean ms_read_db_tcp_socket(GIOChannel *src, GIOCondition condition, gpointer
 		return TRUE;
 	}
 
+	client_addr_len = sizeof(client_addr);
 	if ((client_sock = accept(sock, (struct sockaddr*)&client_addr, &client_addr_len)) < 0) {
 		MS_DBG_ERR("accept failed : %s", strerror(errno));
 		return TRUE;
@@ -663,6 +664,7 @@ gboolean ms_read_db_tcp_batch_socket(GIOChannel *src, GIOCondition condition, gp
 		return TRUE;
 	}
 
+	client_addr_len = sizeof(client_addr);
 	if ((client_sock = accept(sock, (struct sockaddr*)&client_addr, &client_addr_len)) < 0) {
 		MS_DBG_ERR("accept failed : %s", strerror(errno));
 		media_db_request_update_db_batch_clear();
