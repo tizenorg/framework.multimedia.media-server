@@ -186,7 +186,7 @@ gboolean ms_read_socket(GIOChannel *src, GIOCondition condition, gpointer data)
 	int ret;
 	int res;
 	int pid;
-	int req_num;
+	int req_num = -1;
 	int path_size;
 	int client_sock = -1;
 	int recv_msg_size = 0;
@@ -564,7 +564,6 @@ gboolean _ms_process_tcp_message(void *data)
 	MS_DBG_ERR("client sokcet : %d", client_sock);
 
 	while(1) {
-		MS_DBG("_________________________________ WAIT MESSAGE _________________________________");
 		if ((recv_msg_size = read(client_sock, &recv_msg, sizeof(ms_comm_msg_s))) < 0) {
 			MS_DBG_ERR("recv failed : %s", strerror(errno));
 			if (errno == EINTR) {
@@ -584,8 +583,7 @@ gboolean _ms_process_tcp_message(void *data)
 
 		MS_DBG_SLOG("(%d)Received [%d] [%s]", recv_msg.pid, recv_msg.msg_type, recv_msg.msg);
 
-		//if((recv_msg.msg_size <= 0) ||(recv_msg.msg_size > MS_FILE_PATH_LEN_MAX)  || (!MS_STRING_VALID(recv_msg.msg))) {
-		if((recv_msg.msg_size <= 0) ||(recv_msg.msg_size > MAX_MSG_SIZE)  || (!MS_STRING_VALID(recv_msg.msg))) {
+		if((recv_msg.msg_size <= 0) ||(recv_msg.msg_size > MAX_MSG_SIZE)) {
 			MS_DBG_ERR("invalid query. size[%d]", recv_msg.msg_size);
 			MS_DBG_ERR("Received [%d](%d) [%s]", recv_msg.msg_type, recv_msg.msg_size, recv_msg.msg);
 			MS_DBG_ERR("client sokcet : %d", client_sock);
