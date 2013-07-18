@@ -53,6 +53,7 @@ extern GAsyncQueue *scan_queue;
 GAsyncQueue* ret_queue;
 GArray *owner_list;
 extern GMutex *scanner_mutex;
+gint cur_running_task;
 
 typedef struct ms_req_owner_data
 {
@@ -543,7 +544,7 @@ ERROR:
 }
 
 
-gboolean _ms_process_tcp_message(void *data)
+void _ms_process_tcp_message(gpointer data,  gpointer user_data)
 {
 	int ret = MS_MEDIA_ERR_NONE;
 	int recv_msg_size = -1;
@@ -558,7 +559,7 @@ gboolean _ms_process_tcp_message(void *data)
 	/* Connect Media DB*/
 	if(media_db_connect(&db_handle) != MS_MEDIA_ERR_NONE) {
 		MS_DBG_ERR("Failed to connect DB");
-		return FALSE;
+		return;
 	}
 
 	MS_DBG_ERR("client sokcet : %d", client_sock);
@@ -640,18 +641,22 @@ gboolean _ms_process_tcp_message(void *data)
 
 	/* Disconnect DB*/
 	media_db_disconnect(db_handle);
-
-	g_thread_exit(0);
+	MS_DBG_ERR("END");
+	g_atomic_int_dec_and_test(&cur_running_task);
 }
 
 gboolean ms_read_db_tcp_batch_socket(GIOChannel *src, GIOCondition condition, gpointer data)
 {
+#define MAX_THREAD_NUM 3
+
 #ifdef _USE_UDS_SOCKET_
 	struct sockaddr_un client_addr;
 #else
 	struct sockaddr_in client_addr;
 #endif
 	unsigned int client_addr_len;
+	static GThreadPool *gtp = NULL;
+	GError *error = NULL;
 
 	int sock = -1;
 	int client_sock = -1;
@@ -671,7 +676,26 @@ gboolean ms_read_db_tcp_batch_socket(GIOChannel *src, GIOCondition condition, gp
 
 	MS_DBG_SLOG("Client[%d] is accepted", client_sock);
 
-	g_thread_new("message_thread", (GThreadFunc)_ms_process_tcp_message, GINT_TO_POINTER(client_sock));
+	if (gtp == NULL) {
+		MS_DBG_SLOG("Create New Thread Pool %d", client_sock);
+		gtp = g_thread_pool_new((GFunc)_ms_process_tcp_message, NULL, MAX_THREAD_NUM, TRUE, &error);
+	}
+
+	/*check number of running thread */
+	if (g_atomic_int_get(&cur_running_task) < MAX_THREAD_NUM) {
+		MS_DBG_SLOG("CURRENT RUNNING TASK %d", cur_running_task);
+		g_atomic_int_inc(&cur_running_task);
+		g_thread_pool_push(gtp, GINT_TO_POINTER(client_sock), &error);
+	}
+
+	if (error != NULL) {
+		MS_DBG_SLOG("g_thread_pool_push failed [%d]", error->message);
+		g_error_free(error);
+		error = NULL;
+	}
+
+	/*NEED IMPLEMENT ERROR RETURN TO CLIENT*/
 
 	return TRUE;
 }
+

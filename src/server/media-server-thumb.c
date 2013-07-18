@@ -403,7 +403,7 @@ _ms_thumb_set_buffer(thumbMsg *req_msg, unsigned char **buf, int *buf_size)
 	org_path_len = strlen(req_msg->org_path) + 1;
 	dst_path_len = strlen(req_msg->dst_path) + 1;
 
-	MS_DBG("Basic Size : %d, org_path : %s[%d], dst_path : %s[%d]", header_size, req_msg->org_path, org_path_len, req_msg->dst_path, dst_path_len);
+	MS_DBG_SLOG("Basic Size : %d, org_path : %s[%d], dst_path : %s[%d]", header_size, req_msg->org_path, org_path_len, req_msg->dst_path, dst_path_len);
 
 	size = header_size + org_path_len + dst_path_len;
 	*buf = malloc(size);
@@ -490,37 +490,6 @@ gboolean _ms_thumb_agent_recv_thumb_done_from_server(GIOChannel *src, GIOConditi
 		MS_DBG("Thumbnail extracting done");
 		g_thumb_server_extracting = FALSE;
 
-		return FALSE;
-	}
-
-	return FALSE;
-}
-
-gboolean _ms_thumb_check_queued_request(gpointer data)
-{
-	if (g_thumb_server_queued_all_extracting_request) {
-		MS_DBG_WARN("There is  queued request");
-
-		/* request all-thumb extraction to thumbnail server */
-		thumbMsg msg;
-		thumbMsg recv_msg;
-		memset((void *)&msg, 0, sizeof(msg));
-		memset((void *)&recv_msg, 0, sizeof(recv_msg));
-
-		msg.msg_type = 2; // THUMB_REQUEST_ALL_MEDIA
-		msg.org_path[0] = '\0';
-		msg.origin_path_size = 1;
-		msg.dst_path[0] = '\0';
-		msg.dest_path_size = 1;
-
-		/* Command All-thumb extraction to thumbnail server */
-		if (!_ms_thumb_agent_send_msg_to_thumb_server(&msg, &recv_msg)) {
-			MS_DBG_ERR("_ms_thumb_agent_send_msg_to_thumb_server is failed");
-		}
-
-		g_thumb_server_queued_all_extracting_request = FALSE;
-	} else {
-		MS_DBG("There is no queued request");
 		return FALSE;
 	}
 
@@ -640,7 +609,7 @@ gboolean _ms_thumb_agent_send_msg_to_thumb_server(thumbMsg *recv_msg, thumbMsg *
 		return FALSE;
 	}
 
-	MS_DBG("recv %s from thumb daemon is successful", res_msg->dst_path);
+	MS_DBG_SLOG("recv %s from thumb daemon is successful", res_msg->dst_path);
 #ifdef _USE_UDS_SOCKET_
 		ms_ipc_delete_client_socket(&sock_info);
 #else
@@ -662,6 +631,37 @@ gboolean _ms_thumb_agent_send_msg_to_thumb_server(thumbMsg *recv_msg, thumbMsg *
 	}
 
 	return TRUE;
+}
+
+gboolean _ms_thumb_check_queued_request(gpointer data)
+{
+	if (g_thumb_server_queued_all_extracting_request) {
+		MS_DBG_WARN("There is  queued request");
+
+		/* request all-thumb extraction to thumbnail server */
+		thumbMsg msg;
+		thumbMsg recv_msg;
+		memset((void *)&msg, 0, sizeof(msg));
+		memset((void *)&recv_msg, 0, sizeof(recv_msg));
+
+		msg.msg_type = 2; // THUMB_REQUEST_ALL_MEDIA
+		msg.org_path[0] = '\0';
+		msg.origin_path_size = 1;
+		msg.dst_path[0] = '\0';
+		msg.dest_path_size = 1;
+
+		/* Command All-thumb extraction to thumbnail server */
+		if (!_ms_thumb_agent_send_msg_to_thumb_server(&msg, &recv_msg)) {
+			MS_DBG_ERR("_ms_thumb_agent_send_msg_to_thumb_server is failed");
+		}
+
+		g_thumb_server_queued_all_extracting_request = FALSE;
+	} else {
+		MS_DBG("There is no queued request");
+		return FALSE;
+	}
+
+	return FALSE;
 }
 
 gboolean _ms_thumb_agent_timer()
@@ -1003,7 +1003,7 @@ gboolean _ms_thumb_request_to_server(gpointer data)
 	if (send(client_sock, buf, buf_size, 0) != buf_size) {
 		MS_DBG_ERR("sendto failed : %s", strerror(errno));
 	} else {
-		MS_DBG("Sent %s(%d) from %s \n", res_msg.dst_path, strlen(res_msg.dst_path), res_msg.org_path);
+		MS_DBG_SLOG("Sent %s(%d) from %s \n", res_msg.dst_path, strlen(res_msg.dst_path), res_msg.org_path);
 	}
 
 	close(client_sock);
@@ -1060,7 +1060,7 @@ gboolean _ms_thumb_agent_read_socket(GIOChannel *src,
 		return TRUE;
 	}
 
-	MS_DBG("Received [%d] %s(%d) from PID(%d) \n", recv_msg->msg_type, recv_msg->org_path, strlen(recv_msg->org_path), recv_msg->pid);
+	MS_DBG_SLOG("Received [%d] %s(%d) from PID(%d) \n", recv_msg->msg_type, recv_msg->org_path, strlen(recv_msg->org_path), recv_msg->pid);
 
 	thumbRequest *thumb_req = NULL;
 	thumb_req = calloc(1, sizeof(thumbRequest));
@@ -1114,7 +1114,7 @@ gboolean _ms_thumb_agent_read_socket(GIOChannel *src,
 		return TRUE;
 	}
 
-	MS_DBG("%s is queued", recv_msg->org_path);
+	MS_DBG_SLOG("%s is queued", recv_msg->org_path);
 	g_queue_push_tail(g_request_queue, (gpointer)thumb_req);
 
 	if (!g_queue_work) {

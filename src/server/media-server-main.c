@@ -318,6 +318,8 @@ int main(int argc, char **argv)
 		MS_DBG_ERR("sigaction failed [%s]", strerror(errno));
 	} 
 
+	signal(SIGPIPE,SIG_IGN);
+
 	/*clear previous data of sdcard on media database and check db status for updating*/
 	while(!ms_db_get_thread_status()) {
 		MS_DBG_ERR("wait db thread");
