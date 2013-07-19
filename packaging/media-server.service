@@ -6,6 +6,8 @@ Requires=vconf-setup.service
 [Service]
 Type=simple
 ExecStart=/usr/bin/media-server
+Restart=always
+RestartSec=0
 
 [Install]
 WantedBy=multi-user.target
