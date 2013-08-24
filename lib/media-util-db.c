@@ -69,6 +69,7 @@ static int __media_db_busy_handler(void *pData, int count)
 static int __media_db_connect_db_with_handle(sqlite3 **db_handle)
 {
 	int ret = MS_MEDIA_ERR_NONE;
+	char *zErrMsg = NULL;
 
 	/*Connect DB*/
 	ret = db_util_open(MEDIA_DB_NAME, db_handle, DB_UTIL_REGISTER_HOOK_METHOD);
@@ -94,6 +95,17 @@ static int __media_db_connect_db_with_handle(sqlite3 **db_handle)
 			MSAPI_DBG_ERR("[error when register busy handler] %s\n", sqlite3_errmsg(*db_handle));
 		}
 
+		db_util_close(*db_handle);
+		*db_handle = NULL;
+
+		return MS_MEDIA_ERR_DB_CONNECT_FAIL;
+	}
+
+	ret = sqlite3_exec(*db_handle, "PRAGMA case_sensitive_like = true", NULL, NULL, &zErrMsg);
+	if (SQLITE_OK != ret) {
+		MSAPI_DBG_ERR("Fail to change case sensitive mode: %s\n", sqlite3_errmsg(*db_handle));
+
+		sqlite3_free(zErrMsg);
 		db_util_close(*db_handle);
 		*db_handle = NULL;
 
