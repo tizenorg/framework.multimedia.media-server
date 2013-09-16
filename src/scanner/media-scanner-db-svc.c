@@ -57,6 +57,7 @@ enum func_list {
 	eINSERT_BEGIN,
 	eINSERT_END,
 	eINSERT_BATCH,
+	eINSERT_ITEM_IMMEDIATELY,
 	eSET_ALL_VALIDITY,
 	eSET_VALIDITY_BEGIN,
 	eSET_VALIDITY_END,
@@ -70,6 +71,7 @@ enum func_list {
 	eINSERT_BURST,
 	eSEND_DIR_UPDATE_NOTI,
 	eCOUNT_DELETE_ITEMS_IN_FOLDER,
+	eDELETE_ITEM,
 	eFUNC_MAX
 };
 
@@ -150,6 +152,7 @@ msc_load_functions(void)
 		"insert_item_begin",
 		"insert_item_end",
 		"insert_item",
+		"insert_item_immediately",
 		"set_all_storage_items_validity",
 		"set_item_validity_begin",
 		"set_item_validity_end",
@@ -163,6 +166,7 @@ msc_load_functions(void)
 		"insert_burst_item",
 		"send_dir_update_noti",
 		"count_delete_items_in_folder",
+		"delete_item",
 		};
 	/*init array for adding name of so*/
 	so_array = g_array_new(FALSE, FALSE, sizeof(char*));
@@ -324,26 +328,21 @@ msc_validate_item(void **handle, const char *path)
 	int res = MS_MEDIA_ERR_NONE;
 	int ret;
 	char *err_msg = NULL;
-	ms_storage_type_t storage_type;
-
-	storage_type = ms_get_storage_type_by_full(path);
+	bool modified = FALSE;
 
 	for (lib_index = 0; lib_index < lib_num; lib_index++) {
-		if (!_msc_check_category(path, lib_index)) {
-			/*check exist in Media DB, If file is not exist, insert data in DB. */
-			ret = ((CHECK_ITEM_EXIST)func_array[lib_index][eEXIST])(handle[lib_index], path, storage_type, &err_msg); /*dlopen*/
+		/*check exist in Media DB, If file is not exist, insert data in DB. */
+		ret = ((CHECK_ITEM_EXIST)func_array[lib_index][eEXIST])(handle[lib_index], path, &modified, &err_msg); /*dlopen*/
+		if (ret != 0) {
+			MS_SAFE_FREE(err_msg);
+			ret = msc_insert_item_batch(handle, path);
 			if (ret != 0) {
-				MS_SAFE_FREE(err_msg);
-
-				ret = ((INSERT_ITEM)func_array[lib_index][eINSERT_BATCH])(handle[lib_index], path, storage_type, &err_msg); /*dlopen*/
-				if (ret != 0) {
-					MSC_DBG_ERR("error : %s [%s] %s", g_array_index(so_array, char*, lib_index), err_msg, path);
-					MS_SAFE_FREE(err_msg);
-					res = MS_MEDIA_ERR_DB_INSERT_FAIL;
-				} else {
-					insert_count++;
-				}
+				res = MS_MEDIA_ERR_DB_INSERT_FAIL;
 			} else {
+				insert_count++;
+			}
+		} else {
+			if (modified == FALSE) {
 				/*if meta data of file exist, change valid field to "1" */
 				ret = ((SET_ITEM_VALIDITY)func_array[lib_index][eSET_VALIDITY])(handle[lib_index], path, true, true, &err_msg); /*dlopen*/
 				if (ret != 0) {
@@ -351,9 +350,22 @@ msc_validate_item(void **handle, const char *path)
 					MS_SAFE_FREE(err_msg);
 					res = MS_MEDIA_ERR_DB_UPDATE_FAIL;
 				}
+			} else {
+				/* the file has same name but it is changed, so we have to update DB */
+				ret = ((DELETE_ITEM)func_array[lib_index][eDELETE_ITEM])(handle[lib_index], path, &err_msg); /*dlopen*/
+				if (ret != 0) {
+					MSC_DBG_ERR("error : %s [%s] %s", g_array_index(so_array, char*, lib_index), err_msg, path);
+					MS_SAFE_FREE(err_msg);
+					res = MS_MEDIA_ERR_DB_DELETE_FAIL;
+				} else {
+					ret = msc_insert_item_immediately(handle, path);
+					if (ret != 0) {
+						res = MS_MEDIA_ERR_DB_INSERT_FAIL;
+					} else {
+						insert_count++;
+					}
+				}
 			}
-		} else {
-			MSC_DBG_ERR("check category failed [%s]", path);
 		}
 	}
 
@@ -401,6 +413,29 @@ msc_insert_item_batch(void **handle, const char *path)
 			}
 		} else {
 			MSC_DBG_ERR("check category failed [%s]", path);
+		}
+	}
+
+	return res;
+}
+
+int
+msc_insert_item_immediately(void **handle, const char *path)
+{
+	int lib_index;
+	int res = MS_MEDIA_ERR_NONE;
+	int ret;
+	char *err_msg = NULL;
+	ms_storage_type_t storage_type;
+
+	storage_type = ms_get_storage_type_by_full(path);
+
+	for (lib_index = 0; lib_index < lib_num; lib_index++) {
+		ret = ((INSERT_ITEM_IMMEDIATELY)func_array[lib_index][eINSERT_ITEM_IMMEDIATELY])(handle[lib_index], path, storage_type, &err_msg); /*dlopen*/
+		if (ret != 0) {
+			MSC_DBG_ERR("error : %s [%s] %s", g_array_index(so_array, char*, lib_index), err_msg, path);
+			MS_SAFE_FREE(err_msg);
+			res = MS_MEDIA_ERR_DB_INSERT_FAIL;
 		}
 	}
 

@@ -35,10 +35,11 @@
 typedef int (*CHECK_ITEM)(const char*, char **);
 typedef int (*CONNECT)(void**, char **);
 typedef int (*DISCONNECT)(void*, char **);
-typedef int (*CHECK_ITEM_EXIST)(void*, const char*, int, char **);
+typedef int (*CHECK_ITEM_EXIST)(void*, const char*, bool*, char **);
 typedef int (*INSERT_ITEM_BEGIN)(void*, int, int, int, char **);
 typedef int (*INSERT_ITEM_END)(void*, char **);
 typedef int (*INSERT_ITEM)(void*, const char*, int, char **);
+typedef int (*INSERT_ITEM_IMMEDIATELY)(void*, const char*, int, char **);
 typedef int (*SET_ALL_STORAGE_ITEMS_VALIDITY)(void*, int, int, char **);
 typedef int (*SET_ITEM_VALIDITY_BEGIN)(void*, int, char **);
 typedef int (*SET_ITEM_VALIDITY_END)(void*, char **);
@@ -52,6 +53,7 @@ typedef int (*DELETE_ALL_INVALID_ITEMS_IN_FOLDER)(void*, const char*, char**);
 typedef int (*INSERT_BURST_ITEM)(void *, const char *, int , char **);
 typedef int (*SEND_DIR_UPDATE_NOTI)(void *, const char *, char **);
 typedef int (*COUNT_DELETE_ITEMS_IN_FOLDER)(void *, const char *, int *, char **);
+typedef int (*DELETE_ITEM)(void *, const char *, char **);
 
 int
 msc_load_functions(void);
@@ -95,6 +97,8 @@ msc_send_dir_update_noti(void **handle, const char*path);
 int
 msc_count_delete_items_in_folder(void **handle, const char*path, int *count);
 
+int
+msc_insert_item_immediately(void **handle, const char *path);
 /****************************************************************************************************
 FOR BULK COMMIT
 *****************************************************************************************************/
