@@ -101,17 +101,6 @@ static int __media_db_connect_db_with_handle(sqlite3 **db_handle)
 		return MS_MEDIA_ERR_DB_CONNECT_FAIL;
 	}
 
-	ret = sqlite3_exec(*db_handle, "PRAGMA case_sensitive_like = true", NULL, NULL, &zErrMsg);
-	if (SQLITE_OK != ret) {
-		MSAPI_DBG_ERR("Fail to change case sensitive mode: %s\n", sqlite3_errmsg(*db_handle));
-
-		sqlite3_free(zErrMsg);
-		db_util_close(*db_handle);
-		*db_handle = NULL;
-
-		return MS_MEDIA_ERR_DB_CONNECT_FAIL;
-	}
-
 	return MS_MEDIA_ERR_NONE;
 }
 
