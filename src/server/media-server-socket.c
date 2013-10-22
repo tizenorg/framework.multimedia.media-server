@@ -642,7 +642,9 @@ void _ms_process_tcp_message(gpointer data,  gpointer user_data)
 	/* Disconnect DB*/
 	media_db_disconnect(db_handle);
 	MS_DBG_ERR("END");
-	g_atomic_int_dec_and_test(&cur_running_task);
+	if (g_atomic_int_dec_and_test(&cur_running_task) == TRUE) 	{
+		MS_DBG("g_atomic_int_dec_and_test is TRUE");
+	}
 }
 
 gboolean ms_read_db_tcp_batch_socket(GIOChannel *src, GIOCondition condition, gpointer data)
@@ -660,6 +662,7 @@ gboolean ms_read_db_tcp_batch_socket(GIOChannel *src, GIOCondition condition, gp
 
 	int sock = -1;
 	int client_sock = -1;
+	int send_msg = MS_MEDIA_ERR_NONE;
 
 	sock = g_io_channel_unix_get_fd(src);
 	if (sock < 0) {
@@ -686,15 +689,37 @@ gboolean ms_read_db_tcp_batch_socket(GIOChannel *src, GIOCondition condition, gp
 		MS_DBG_SLOG("CURRENT RUNNING TASK %d", cur_running_task);
 		g_atomic_int_inc(&cur_running_task);
 		g_thread_pool_push(gtp, GINT_TO_POINTER(client_sock), &error);
+	} else {
+		goto ERROR;
 	}
 
 	if (error != NULL) {
 		MS_DBG_SLOG("g_thread_pool_push failed [%d]", error->message);
 		g_error_free(error);
 		error = NULL;
+	} else {
+		goto ERROR;
 	}
 
 	/*NEED IMPLEMENT ERROR RETURN TO CLIENT*/
+
+	return TRUE;
+
+ERROR:
+
+	send_msg = MS_MEDIA_ERR_DB_SERVER_BUSY_FAIL;
+
+	if (client_sock > 0) {
+		if (write(client_sock, &send_msg, sizeof(send_msg)) != sizeof(send_msg)) {
+			MS_DBG_ERR("send failed : %s", strerror(errno));
+		} else {
+			MS_DBG("Sent successfully");
+		}
+
+		if (close(client_sock) <0) {
+			MS_DBG_ERR("close failed [%s]", strerror(errno));
+		}
+	}
 
 	return TRUE;
 }
