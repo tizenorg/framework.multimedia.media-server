@@ -697,7 +697,6 @@ gboolean ms_read_db_tcp_batch_socket(GIOChannel *src, GIOCondition condition, gp
 		MS_DBG_SLOG("g_thread_pool_push failed [%d]", error->message);
 		g_error_free(error);
 		error = NULL;
-	} else {
 		goto ERROR;
 	}
 
