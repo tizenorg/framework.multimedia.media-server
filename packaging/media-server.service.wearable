@@ -1,0 +1,14 @@
+[Unit]
+Description=Media server
+Requires=icd.service
+After=icd.service
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/media-server
+Restart=always
+RestartSec=0
+MemoryLimit=100M
+
+[Install]
+WantedBy=multi-user.target
