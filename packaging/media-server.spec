@@ -10,12 +10,7 @@ Source2:    media-scanner.service.wearable
 Source3:    media-server.service.mobile
 
 Requires(post): /usr/bin/vconftool
-
-%if %{_repository} == "wearable"
 Requires: deviced
-%else
-Requires: system-server
-%endif
 
 BuildRequires:  pkgconfig(glib-2.0)
 BuildRequires:  pkgconfig(vconf)
@@ -23,18 +18,10 @@ BuildRequires:  pkgconfig(dlog)
 BuildRequires:  pkgconfig(dbus-glib-1)
 BuildRequires:  pkgconfig(sqlite3)
 BuildRequires:  pkgconfig(db-util)
-
-%if %{_repository} == "wearable"
 BuildRequires:  pkgconfig(deviced)
-%else
-BuildRequires:  pkgconfig(pmapi)
-%endif
-
 BuildRequires:  pkgconfig(security-server)
-
-%if %{_repository} == "mobile"
 BuildRequires:  pkgconfig(notification)
-%endif
+
 
 %description
 Description: File manager service server
@@ -70,22 +57,9 @@ export CXXFLAGS="$CXXFLAGS -DTIZEN_DEBUG_ENABLE"
 export FFLAGS="$FFLAGS -DTIZEN_DEBUG_ENABLE"
 %endif
 
-%if %{_repository} == "wearable"
-export CFLAGS="$CFLAGS -DTIZEN_WEARABLE"
-export CXXFLAGS="$CXXFLAGS -DTIZEN_WEARABLE"
-export FFLAGS="$FFLAGS -DTIZEN_WEARABLE"
-%endif
-
 %autogen
 
-%configure \
-%if %{_repository} == "wearable"
-	--disable-notification \
-%else
-	--disable-deviced \
-%endif
-	 --prefix=%{_prefix} --disable-static
-
+%configure --prefix=%{_prefix} --disable-static
 
 make %{?jobs:-j%jobs}
 
@@ -93,17 +67,11 @@ make %{?jobs:-j%jobs}
 %make_install
 
 mkdir -p %{buildroot}/usr/lib/systemd/system/multi-user.target.wants
-%if %{_repository} == "wearable"
 install -m 644 %{SOURCE1} %{buildroot}/usr/lib/systemd/system/media-server.service
-%else
-install -m 644 %{SOURCE3} %{buildroot}/usr/lib/systemd/system/media-server.service
-%endif
 ln -s ../media-server.service %{buildroot}/usr/lib/systemd/system/multi-user.target.wants/media-server.service
 
-%if %{_repository} == "wearable"
 install -m 644 %{SOURCE2} %{buildroot}/usr/lib/systemd/system/media-scanner.service
 #ln -s ../media-scanner.service %{buildroot}/usr/lib/systemd/system/multi-user.target.wants/media-scanner.service
-%endif
 
 mkdir -p %{buildroot}/usr/etc
 cp -rf %{_builddir}/%{name}-%{version}/media-server-plugin %{buildroot}/usr/etc/media-server-plugin
@@ -119,20 +87,14 @@ vconftool set -t int memory/filemanager/Mmc "0" -i -f -s system::vconf_inhouse
 vconftool set -t string db/private/mediaserver/mmc_info "" -f -s media-server::vconf
 
 %files
-%if %{_repository} == "wearable"
-%manifest wearable/media-server.manifest
-%else
-%manifest mobile/media-server.manifest
-%endif
+%manifest media-server.manifest
 %defattr(-,root,root,-)
 %{_bindir}/media-server
 %{_bindir}/media-scanner
 %{_bindir}/mediadb-update
 /usr/lib/systemd/system/media-server.service
 /usr/lib/systemd/system/multi-user.target.wants/media-server.service
-%if %{_repository} == "wearable"
 /usr/lib/systemd/system/media-scanner.service
-%endif
 #/usr/lib/systemd/system/multi-user.target.wants/media-scanner.service
 /usr/etc/media-server-plugin
 #License

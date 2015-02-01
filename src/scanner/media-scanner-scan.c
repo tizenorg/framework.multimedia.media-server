@@ -32,11 +32,7 @@
 #include <dirent.h>
 #include <errno.h>
 #include <malloc.h>
-#ifdef TIZEN_WEARABLE
 #include <dd-display.h>
-#else
-#include <pmapi.h>
-#endif
 #include <vconf.h>
 
 #include "media-util.h"
@@ -89,20 +85,12 @@ static int __msc_set_power_mode(ms_db_status_type_t status)
 
 	switch (status) {
 	case MS_DB_UPDATING:
-#ifdef TIZEN_WEARABLE
 		err = display_lock_state(LCD_OFF, STAY_CUR_STATE, 0);
-#else
-		err = pm_lock_state(LCD_OFF, STAY_CUR_STATE, 0);
-#endif
 		if (err != 0)
 			res = MS_MEDIA_ERR_INTERNAL;
 		break;
 	case MS_DB_UPDATED:
-#ifdef TIZEN_WEARABLE
 		err = display_unlock_state(LCD_OFF, STAY_CUR_STATE);
-#else
-		err = pm_unlock_state(LCD_OFF, STAY_CUR_STATE);
-#endif
 		if (err != 0)
 			res = MS_MEDIA_ERR_INTERNAL;
 		break;
@@ -299,7 +287,9 @@ static int __msc_dir_scan(void **handle, const char*start_path, ms_storage_type_
 				}
 			}
 			/* update modified time of directory */
-			msc_update_folder_time(handle, current_path);
+			if (scan_type == MS_MSG_STORAGE_PARTIAL
+				&& storage_type == MS_STORAGE_INTERNAL)
+				msc_update_folder_time(handle, current_path);
 		} else {
 			MSC_DBG_ERR("%s folder opendir fails", current_path);
 		}
@@ -1125,3 +1115,167 @@ static void __msc_bacth_commit_disable(void* handle, bool ins_status, bool valid
 	return;
 }
 
+static int __msc_dir_scan_meta_update(void **handle, const char*start_path, ms_storage_type_t storage_type)
+{
+	DIR *dp = NULL;
+	GArray *dir_array = NULL;
+	struct dirent entry;
+	struct dirent *result = NULL;
+	int ret = MS_MEDIA_ERR_NONE;
+	char *new_path = NULL;
+	char *current_path = NULL;
+	char path[MS_FILE_PATH_LEN_MAX] = { 0 };
+	int (*scan_function)(void **, const char*) = msc_update_meta_batch;
+
+	/* make new array for storing directory */
+	dir_array = g_array_new (FALSE, FALSE, sizeof (char*));
+	if (dir_array == NULL){
+		MSC_DBG_ERR("g_array_new failed");
+		return MS_MEDIA_ERR_ALLOCATE_MEMORY_FAIL;
+	}
+	/* add first direcotiry to directory array */
+	g_array_append_val (dir_array, start_path);
+
+	/*start db update. the number of element in the array , db update is complete.*/
+	while (dir_array->len != 0) {
+		/*check poweroff status*/
+		ret = __msc_check_stop_status(storage_type);
+		if (ret != MS_MEDIA_ERR_NONE) {
+			goto STOP_SCAN;
+		}
+
+		/* get the current path from directory array */
+		current_path = g_array_index(dir_array , char*, 0);
+		g_array_remove_index (dir_array, 0);
+//		MSC_DBG_SLOG("%d", dir_array->len);
+
+		if (__msc_check_scan_ignore(current_path)) {
+			MSC_DBG_ERR("%s is ignore", current_path);
+			MS_SAFE_FREE(current_path);
+			continue;
+		}
+
+		dp = opendir(current_path);
+		if (dp != NULL) {
+			while (!readdir_r(dp, &entry, &result)) {
+				/*check poweroff status*/
+				ret = __msc_check_stop_status(storage_type);
+				if (ret != MS_MEDIA_ERR_NONE) {
+					goto STOP_SCAN;
+				}
+
+				if (result == NULL)
+					break;
+
+				if (entry.d_name[0] == '.')
+					continue;
+
+				if (entry.d_type & DT_REG) {
+					MSC_DBG_ERR("");
+					 if (ms_strappend(path, sizeof(path), "%s/%s", current_path, entry.d_name) != MS_MEDIA_ERR_NONE) {
+					 	MSC_DBG_ERR("ms_strappend failed");
+						continue;
+					}
+					/* insert into media DB */
+					MSC_DBG_ERR("%s", path);
+					if (scan_function(handle,path) != MS_MEDIA_ERR_NONE) {
+						MSC_DBG_ERR("failed to update db");
+						continue;
+					}
+				} else if (entry.d_type & DT_DIR) {
+					/* this request is recursive scanning */
+					 if (ms_strappend(path, sizeof(path), "%s/%s", current_path, entry.d_name) != MS_MEDIA_ERR_NONE) {
+					 	MSC_DBG_ERR("ms_strappend failed");
+						continue;
+					}
+					/* add new directory to dir_array */
+					new_path = strdup(path);
+					g_array_append_val (dir_array, new_path);
+				}
+			}
+		} else {
+			MSC_DBG_ERR("%s folder opendir fails", current_path);
+		}
+		if (dp) closedir(dp);
+		dp = NULL;
+		MS_SAFE_FREE(current_path);
+	}		/*db update while */
+STOP_SCAN:
+	if (dp) closedir(dp);
+
+	__msc_clear_file_list(dir_array);
+
+	if (ret != MS_MEDIA_ERR_NONE) MSC_DBG_INFO("ret : %d", ret);
+
+	return ret;
+}
+
+
+gboolean msc_metadata_update(void *data)
+{
+	ms_comm_msg_s *scan_data = data;
+	int err;
+	int ret;
+	void **handle = NULL;
+	char *start_path = NULL;
+	ms_storage_type_t storage_type = MS_STORAGE_INTERNAL;
+
+	MSC_DBG_INFO("META UPDATE START");
+
+	/*connect to media db, if conneting is failed, db updating is stopped*/
+	err = msc_connect_db(&handle);
+	if (err != MS_MEDIA_ERR_NONE)
+		return false;
+
+	/*call for bundle commit*/
+	msc_update_start(handle);
+
+	/*insert data into media db */
+
+	start_path = strdup(MEDIA_ROOT_PATH_INTERNAL);
+	ret = __msc_dir_scan_meta_update(handle, start_path, storage_type);
+
+	/* send notification */
+	msc_send_dir_update_noti(handle, MEDIA_ROOT_PATH_INTERNAL);
+
+	if (mmc_state == VCONFKEY_SYSMAN_MMC_MOUNTED) {
+		storage_type = MS_STORAGE_EXTERNAL;
+		start_path = strdup(MEDIA_ROOT_PATH_SDCARD);
+		ret = __msc_dir_scan_meta_update(handle, start_path, storage_type);
+		/* send notification */
+		msc_send_dir_update_noti(handle, MEDIA_ROOT_PATH_SDCARD);
+	}
+
+	/*call for bundle commit*/
+	msc_update_end(handle);
+
+	if (power_off) {
+		MSC_DBG_WAN("power off");
+		goto _POWEROFF;
+	}
+
+	/*disconnect form media db*/
+	if (handle) msc_disconnect_db(&handle);
+
+	/*Active flush */
+	malloc_trim(0);
+
+	msc_send_result(ret, scan_data);
+
+	MS_SAFE_FREE(scan_data);
+
+	MSC_DBG_INFO("META UPDATE END [%d]", ret);
+
+
+_POWEROFF:
+	MS_SAFE_FREE(scan_data);
+	if (handle) msc_disconnect_db(&handle);
+
+	return false;
+}
+
+
+void msc_metadata_update_thread(ms_comm_msg_s *recv_msg)
+{
+	 g_thread_new("update_thread", (GThreadFunc)msc_metadata_update, recv_msg);
+}

@@ -55,6 +55,9 @@ typedef int (*COUNT_DELETE_ITEMS_IN_FOLDER)(void *, const char *, int *, char **
 typedef int (*DELETE_ITEM)(void *, const char *, char **);
 typedef int (*GET_FOLDER_LIST)(void *, char*, char ***, int **, int **, int *, char **);
 typedef int (*UPDATE_FOLDER_TIME)(void *, const char *, char **);
+typedef int (*UPDATE_ITEM_META)(void *, const char *, int, char **);
+typedef int (*UPDATE_ITEM_BEGIN)(void *, int, char **);
+typedef int (*UPDATE_ITEM_END)(void *, char **);
 
 int
 msc_load_functions(void);
@@ -112,6 +115,10 @@ msc_update_folder_time(void **handle, char *folder_path);
 
 int
 msc_insert_item_immediately(void **handle, const char *path);
+
+int
+msc_update_meta_batch(void **handle, const char *path);
+
 /****************************************************************************************************
 FOR BULK COMMIT
 *****************************************************************************************************/
@@ -131,5 +138,11 @@ msc_validate_start(void **handle);
 
 void
 msc_validate_end(void **handle);
+
+void
+msc_update_start(void **handle);
+
+void
+msc_update_end(void **handle);
 
 #endif /*_MEDIA_SCANNER_DB_SVC_H_*/

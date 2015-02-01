@@ -134,11 +134,11 @@ gboolean _read_socket(GIOChannel *src, GIOCondition condition, gpointer data)
 	req_result.pid = recv_msg.pid;
 	req_result.result = recv_msg.result;
 	if (recv_msg.msg_type ==MS_MSG_SCANNER_RESULT) {
-		req_result.complete_path = strdup(recv_msg.msg);
+		req_result.complete_path = strndup(recv_msg.msg, MAX_FILEPATH_LEN);
 		req_result.request_type = MEDIA_DIRECTORY_SCAN;
 		MSAPI_DBG("complete_path :%d", req_result.complete_path);
 	} else if (recv_msg.msg_type == MS_MSG_SCANNER_BULK_RESULT) {
-		req_result.complete_path = strdup(recv_msg.msg);
+		req_result.complete_path = strndup(recv_msg.msg, MAX_FILEPATH_LEN);
 		req_result.request_type = MEDIA_FILES_REGISTER;
 	}
 

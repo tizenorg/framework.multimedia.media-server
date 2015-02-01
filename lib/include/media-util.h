@@ -34,7 +34,7 @@
 #define MEDIA_ROOT_PATH_INTERNAL	MOUNT_PATH"/media"
 #define MEDIA_ROOT_PATH_SDCARD	STORAGE_PATH"/sdcard"
 
-#define MEDIA_THUMB_ROOT_PATH		MOUNT_PATH"/media"
+#define MEDIA_THUMB_ROOT_PATH		MOUNT_PATH"/share/media"
 #define MEDIA_DB_NAME				MOUNT_PATH"/dbspace/.media.db"		/**<  media db name*/
 #define MEDIA_DATA_PATH			MOUNT_PATH"/data/file-manager-service"
 

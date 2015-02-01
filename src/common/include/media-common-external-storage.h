@@ -32,8 +32,10 @@ ms_update_mmc_info(void);
 void
 ms_mmc_removed_handler(void);
 
+#ifndef DISABLE_NOTIFICATION
 int
 ms_present_mmc_status(ms_sdcard_status_type_t status);
+#endif
 
 void
 ms_mmc_vconf_cb(void *data);

@@ -119,6 +119,7 @@ static int __media_db_disconnect_db_with_handle(sqlite3 *db_handle)
 }
 
 extern char MEDIA_IPC_PATH[][50];
+#define MAX_RETRY_COUNT 3
 
 static int __media_db_request_update_tcp(ms_msg_type_e msg_type, const char *request_msg)
 {
@@ -128,6 +129,7 @@ static int __media_db_request_update_tcp(ms_msg_type_e msg_type, const char *req
 	ms_sock_info_s sock_info;
 	struct sockaddr_un serv_addr;
 	int port = MS_DB_UPDATE_PORT;
+	int retry_count = 0;
 
 	if(!MS_STRING_VALID(request_msg))
 	{
@@ -188,12 +190,21 @@ RETRY:
 			goto RETRY;
 	 	}
 
-		close(sockfd);
 		if (errno == EWOULDBLOCK) {
+			if(retry_count < MAX_RETRY_COUNT)	{
+				MSAPI_DBG_ERR("TIME OUT[%d]", retry_count);
+				retry_count ++;
+				goto RETRY;
+		 	}
+
+			close(sockfd);
 			MSAPI_DBG_ERR("Timeout. Can't try any more");
 			return MS_MEDIA_ERR_SOCKET_RECEIVE_TIMEOUT;
 		} else {
 			MSAPI_DBG_ERR("recv failed : %s", strerror(errno));
+
+			close(sockfd);
+
 			return MS_MEDIA_ERR_SOCKET_RECEIVE;
 		}
 	}

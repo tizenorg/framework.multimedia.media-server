@@ -593,7 +593,10 @@ gboolean _ms_thumb_agent_timer()
 			g_shutdowning_thumb_server = FALSE;
 		}
 		usleep(200000);
-
+		g_io_channel_shutdown(g_udp_channel, FALSE, NULL);
+		g_io_channel_unref(g_udp_channel);
+		g_udp_channel = NULL;
+		g_communicate_sock = 0;
 	} else {
 		MS_DBG_ERR("g_server_pid is %d. Maybe there's problem in thumbnail-server", g_server_pid);
 	}
@@ -770,9 +773,32 @@ gboolean _ms_thumb_request_to_server(gpointer data)
 			if (!_ms_thumb_agent_send_msg_to_thumb_server(recv_msg, &res_msg)) {
 				MS_DBG_ERR("_ms_thumb_agent_send_msg_to_thumb_server is failed");
 
+				thumbMsg res_msg;
+				memset((void *)&res_msg, 0, sizeof(res_msg));
+
+				res_msg.msg_type = 6; // THUMB_RESPONSE
+				res_msg.status = 1; //THUMB_FAIL
+				res_msg.origin_path_size = strlen(recv_msg->org_path);
+				strncpy(res_msg.org_path, recv_msg->org_path, res_msg.origin_path_size);
+				res_msg.dst_path[0] = '\0';
+				res_msg.dest_path_size = 1;
+
+				int buf_size = 0;
+				unsigned char *buf = NULL;
+				_ms_thumb_set_buffer(&res_msg, &buf, &buf_size);
+
+				if (send(client_sock, buf, buf_size, 0) != buf_size) {
+					MS_DBG_ERR("sendto failed : %s", strerror(errno));
+				} else {
+					MS_DBG("Sent Refuse msg from %s", recv_msg->org_path);
+				}
+
 				close(client_sock);
+
+				MS_SAFE_FREE(buf);
 				MS_SAFE_FREE(req->recv_msg);
 				MS_SAFE_FREE(req);
+
 				return TRUE;
 			}
 		}
@@ -869,10 +895,10 @@ gboolean _ms_thumb_agent_read_socket(GIOChannel *src,
 
 		res_msg.msg_type = 6; // THUMB_RESPONSE
 		res_msg.status = 1; //THUMB_FAIL
-		res_msg.org_path[0] = '\0';
-		res_msg.origin_path_size = 0;
+		res_msg.origin_path_size = strlen(recv_msg->org_path);
+		strncpy(res_msg.org_path, recv_msg->org_path, res_msg.origin_path_size);
 		res_msg.dst_path[0] = '\0';
-		res_msg.dest_path_size = 0;
+		res_msg.dest_path_size = 1;
 
 		int buf_size = 0;
 		unsigned char *buf = NULL;
@@ -991,6 +1017,8 @@ gpointer ms_thumb_agent_start_thread(gpointer data)
 	close(g_communicate_sock);
 
 	g_main_loop_unref(g_thumb_agent_loop);
+
+	close(sockfd);
 
 	return NULL;
 }

@@ -59,6 +59,8 @@ static void __ms_add_event_receiver(GIOChannel *channel);
 static void __ms_remove_requst_receiver(GIOChannel *channel);
 static void __ms_add_requst_receiver(GMainLoop *mainloop, GIOChannel **channel);
 
+static char *priv_lang = NULL;
+
 bool check_process()
 {
 	DIR *pdir;
@@ -173,27 +175,6 @@ static void _db_clear(void)
 	ms_unload_functions();
 }
 
-static void _db_backup(void)
-{
-	int err = MS_MEDIA_ERR_NONE;
-	void **handle = NULL;
-
-	/*load functions from plusin(s)*/
-	err = ms_load_functions();
-	if (err != MS_MEDIA_ERR_NONE) {
-		MS_DBG_ERR("function load failed");
-		exit(0);
-	}
-
-	ms_connect_db(&handle);
-
-	/*disconnect form media db*/
-	if (handle) ms_disconnect_db(&handle);
-
-	/*unload functions*/
-	ms_unload_functions();
-}
-
 void _ms_signal_handler(int n)
 {
 	int stat, pid, thumb_pid;
@@ -268,6 +249,51 @@ _ms_mmc_vconf_cb(keynode_t *key, void* data)
 
 		ms_send_storage_scan_request(MEDIA_ROOT_PATH_SDCARD, ms_get_mmc_state());
 	}
+
+	return;
+}
+
+void
+_ms_change_lang_vconf_cb(keynode_t *key, void* data)
+{
+	char lang[10] = {0,};
+	char *eng = "en";
+	char *chi = "zh";
+	char *jpn = "ja";
+	char *kor = "ko";
+	bool need_update = FALSE;
+
+	if (!ms_config_get_str(VCONFKEY_LANGSET, lang)) {
+		MS_DBG_ERR("Get VCONFKEY_LANGSET failed.");
+		return;
+	}
+
+	MS_DBG("CURRENT LANGUAGE [%s %s]", priv_lang, lang);
+
+	if (strcmp(priv_lang, lang) == 0) {
+		need_update = FALSE;
+	} else if ((strncmp(lang, eng, strlen(eng)) == 0) ||
+			(strncmp(lang, chi, strlen(chi)) == 0) ||
+			(strncmp(lang, jpn, strlen(jpn)) == 0) ||
+			(strncmp(lang, kor, strlen(kor)) == 0)) {
+			need_update = TRUE;
+	} else {
+		if ((strncmp(priv_lang, eng, strlen(eng)) == 0) ||
+			(strncmp(priv_lang, chi, strlen(chi)) == 0) ||
+			(strncmp(priv_lang, jpn, strlen(jpn)) == 0) ||
+			(strncmp(priv_lang, kor, strlen(kor)) == 0)) {
+			need_update = TRUE;
+		}
+	}
+
+	if (need_update) {
+		ms_send_storage_scan_request(NULL, MS_SCAN_META);
+	} else {
+		MS_DBG_WARN("language is changed but do not update meta data");
+	}
+
+	MS_SAFE_FREE(priv_lang);
+	priv_lang = strdup(lang);
 
 	return;
 }
@@ -383,15 +409,24 @@ static void __ms_add_requst_receiver(GMainLoop *mainloop, GIOChannel **channel)
 
 static void __ms_remove_requst_receiver(GIOChannel *channel)
 {
+	int fd = -1;
+
 	/*close an IO channel*/
-	g_io_channel_unix_get_fd(channel);
+	fd = g_io_channel_unix_get_fd(channel);
 	g_io_channel_shutdown(channel,  FALSE, NULL);
 	g_io_channel_unref(channel);
+
+	if (fd > 0) {
+		if (close(fd) < 0) {
+			MS_DBG_ERR("CLOSE ERROR %s", strerror(errno));
+		}
+	}
 }
 
 static void __ms_add_event_receiver(GIOChannel *channel)
 {
 	int err;
+	char lang[10] = {0,};
 
 	/*set power off callback function*/
 	ms_add_poweoff_event_receiver(_power_off_cb,channel);
@@ -400,6 +435,17 @@ static void __ms_add_event_receiver(GIOChannel *channel)
 	err = vconf_notify_key_changed(VCONFKEY_SYSMAN_MMC_STATUS, (vconf_callback_fn) _ms_mmc_vconf_cb, NULL);
 	if (err == -1)
 		MS_DBG_ERR("add call back function for event %s fails", VCONFKEY_SYSMAN_MMC_STATUS);
+
+	if (!ms_config_get_str(VCONFKEY_LANGSET, lang)) {
+		MS_DBG_ERR("Get VCONFKEY_LANGSET failed.");
+		return;
+	}
+
+	priv_lang = strdup(lang);
+
+	err = vconf_notify_key_changed(VCONFKEY_LANGSET, (vconf_callback_fn) _ms_change_lang_vconf_cb, NULL);
+	if (err == -1)
+		MS_DBG_ERR("add call back function for event %s fails", VCONFKEY_LANGSET);
 
 }
 
@@ -428,6 +474,9 @@ static void __ms_add_signal_handler(void)
 static void __ms_check_mediadb(void)
 {
 	_db_clear();
+
+	/* update internal storage */
+	ms_send_storage_scan_request(MEDIA_ROOT_PATH_INTERNAL, MS_SCAN_PART);
 
 	/* update external storage */
 	if (ms_is_mmc_inserted()) {

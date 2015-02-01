@@ -105,6 +105,9 @@ gboolean msc_receive_request(GIOChannel *src, GIOCondition condition, gpointer d
 				g_async_queue_push(storage_queue, GINT_TO_POINTER(recv_msg));
 			}
 			break;
+		case MS_MSG_STORAGE_META:
+			msc_metadata_update_thread(recv_msg);
+			break;
 		default:
 			{
 				MSC_DBG_ERR("THIS REQUEST IS INVALID %d", req_num);

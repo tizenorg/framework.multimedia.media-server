@@ -391,6 +391,9 @@ int ms_send_storage_scan_request(char *root_path, ms_dir_scan_type_t scan_type)
 		case MS_SCAN_INVALID:
 			scan_msg.msg_type = MS_MSG_STORAGE_INVALID;
 			break;
+		case MS_SCAN_META:
+			scan_msg.msg_type = MS_MSG_STORAGE_META;
+			break;
 		default :
 			ret = MS_MEDIA_ERR_INVALID_PARAMETER;
 			MS_DBG_ERR("ms_send_storage_scan_request invalid parameter");
@@ -399,8 +402,10 @@ int ms_send_storage_scan_request(char *root_path, ms_dir_scan_type_t scan_type)
 	}
 
 	/* msg_size & msg */
-	scan_msg.msg_size = strlen(root_path);
-	strncpy(scan_msg.msg, root_path, scan_msg.msg_size );
+	if (root_path != NULL) {
+		scan_msg.msg_size = strlen(root_path);
+		strncpy(scan_msg.msg, root_path, scan_msg.msg_size );
+	}
 
 	ret = ms_send_scan_request(&scan_msg, -1);
 

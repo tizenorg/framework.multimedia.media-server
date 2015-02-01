@@ -25,7 +25,7 @@
 #include <malloc.h>
 #include <vconf.h>
 #include <errno.h>
-#ifndef TIZEN_WEARABLE
+#ifndef TIZEN_W
 #include <notification.h>
 #endif
 
@@ -210,7 +210,7 @@ void update_lang(void)
 int
 ms_present_mmc_status(ms_sdcard_status_type_t status)
 {
-#ifndef TIZEN_WEARABLE
+#ifndef TIZEN_W
 	int ret = NOTIFICATION_ERROR_NONE;
 
 	update_lang();
@@ -218,11 +218,11 @@ ms_present_mmc_status(ms_sdcard_status_type_t status)
 	if (status == MS_SDCARD_INSERTED)
 		ret = notification_status_message_post(_GETSYSTEMSTR("IDS_COM_BODY_PREPARING_SD_CARD"));
 	else if (status == MS_SDCARD_REMOVED)
-		ret = notification_status_message_post(_GETSYSTEMSTR("IDS_COM_BODY_SD_CARD_REMOVED"));
+		ret = notification_status_message_post(_GETSYSTEMSTR("IDS_COM_BODY_SD_CARD_UNEXPECTEDLY_REMOVED"));
 
 	if(ret != NOTIFICATION_ERROR_NONE)
 		return MS_MEDIA_ERR_INTERNAL;
-#endif
+#endif /*TIZEN_W*/
 	return MS_MEDIA_ERR_NONE;
 }
 

@@ -65,6 +65,7 @@ typedef enum{
 	MS_MSG_SCANNER_READY,				/**< Ready from media scanner */
 	MS_MSG_SCANNER_RESULT,				/**< Result of directory scanning */
 	MS_MSG_SCANNER_BULK_RESULT,			/**< Request bulk insert */
+	MS_MSG_STORAGE_META,				/**< Request updating meta data */
 	MS_MSG_MAX							/**< Invalid msg type */
 }ms_msg_type_e;
 

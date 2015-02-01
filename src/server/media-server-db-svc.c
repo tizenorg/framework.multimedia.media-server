@@ -152,7 +152,7 @@ ms_load_functions(void)
 	dlerror();    /* Clear any existing error */
 
 	/*allocate for array of functions*/
-	MS_MALLOC(func_array, sizeof(void*) * lib_num);
+	MS_MALLOC(func_array, sizeof(void**) * lib_num);
 	if (func_array == NULL) {
 		MS_DBG_ERR("malloc failed");
 		MS_SAFE_FREE(func_handle);

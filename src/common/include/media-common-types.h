@@ -77,6 +77,7 @@ typedef enum {
 typedef enum {
 	MS_SCAN_INVALID,
 	MS_SCAN_PART,
+	MS_SCAN_META,
 	MS_SCAN_ALL,
 } ms_dir_scan_type_t;
 

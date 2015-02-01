@@ -73,6 +73,9 @@ enum func_list {
 	eDELETE_ITEM,
 	eGET_FOLDER_LIST,
 	eUPDATE_FOLDER_TIME,
+	eUPDATE_ITEM_META,
+	eUPDATE_ITEM_BEGIN,
+	eUPDATE_ITEM_END,
 	eFUNC_MAX
 };
 
@@ -153,6 +156,9 @@ msc_load_functions(void)
 		"delete_item",
 		"get_folder_list",
 		"update_folder_time",
+		"update_item_meta",
+		"update_item_begin",
+		"update_item_end",
 		};
 	/*init array for adding name of so*/
 	so_array = g_array_new(FALSE, FALSE, sizeof(char*));
@@ -190,7 +196,7 @@ msc_load_functions(void)
 	dlerror();    /* Clear any existing error */
 
 	/*allocate for array of functions*/
-	MS_MALLOC(func_array, sizeof(void*) * lib_num);
+	MS_MALLOC(func_array, sizeof(void**) * lib_num);
 	if (func_array == NULL) {
 		MSC_DBG_ERR("malloc failed");
 		MS_SAFE_FREE(scan_func_handle);
@@ -226,7 +232,7 @@ msc_load_functions(void)
 				MS_SAFE_FREE(func_array);
 				MS_SAFE_FREE(scan_func_handle);
 
-				MSC_DBG_ERR("dlsym failed");
+				MSC_DBG_ERR("dlsym failed [%s]", func_list[func_index]);
 				return MS_MEDIA_ERR_DYNAMIC_LINK;
 			}
 		}
@@ -338,13 +344,14 @@ msc_validate_item(void **handle, const char *path)
 				}
 			} else {
 				/* the file has same name but it is changed, so we have to update DB */
+				MSC_DBG_WAN("DELETE ITEM [%s]", path);
 				ret = ((DELETE_ITEM)func_array[lib_index][eDELETE_ITEM])(handle[lib_index], path, &err_msg); /*dlopen*/
 				if (ret != 0) {
 					MSC_DBG_ERR("error : %s [%s] %s", g_array_index(so_array, char*, lib_index), err_msg, path);
 					MS_SAFE_FREE(err_msg);
 					res = MS_MEDIA_ERR_DB_DELETE_FAIL;
 				} else {
-					ret = msc_insert_item_immediately(handle, path);
+					ret = msc_insert_item_batch(handle, path);
 					if (ret != 0) {
 						res = MS_MEDIA_ERR_DB_INSERT_FAIL;
 					} else {
@@ -627,6 +634,31 @@ msc_update_folder_time(void **handle, char *folder_path)
 	return MS_MEDIA_ERR_NONE;
 }
 
+int
+msc_update_meta_batch(void **handle, const char *path)
+{
+	int lib_index;
+	int res = MS_MEDIA_ERR_NONE;
+	int ret;
+	char *err_msg = NULL;
+	ms_storage_type_t storage_type;
+
+	storage_type = ms_get_storage_type_by_full(path);
+
+	MSC_DBG_ERR("");
+
+	for (lib_index = 0; lib_index < lib_num; lib_index++) {
+		ret = ((UPDATE_ITEM_META)func_array[lib_index][eUPDATE_ITEM_META])(handle[lib_index], path, storage_type, &err_msg); /*dlopen*/
+		if (ret != 0) {
+			MSC_DBG_ERR("error : %s [%s] %s", g_array_index(so_array, char*, lib_index), err_msg, path);
+			MS_SAFE_FREE(err_msg);
+			res = MS_MEDIA_ERR_DB_INSERT_FAIL;
+		}
+	}
+
+	return res;
+}
+
 /****************************************************************************************************
 FOR BULK COMMIT
 *****************************************************************************************************/
@@ -696,6 +728,38 @@ msc_validate_end(void **handle)
 
 	for (lib_index = 0; lib_index < lib_num; lib_index++) {
 		ret = ((SET_ITEM_VALIDITY_END)func_array[lib_index][eSET_VALIDITY_END])(handle[lib_index], &err_msg);/*dlopen*/
+		if (ret != 0) {
+			MSC_DBG_ERR("error : %s [%s]", g_array_index(so_array, char*, lib_index), err_msg);
+			MS_SAFE_FREE(err_msg);
+		}
+	}
+}
+
+void
+msc_update_start(void **handle)
+{
+	int lib_index;
+	int ret = 0;
+	char *err_msg = NULL;
+
+	for (lib_index = 0; lib_index < lib_num; lib_index++) {
+		ret = ((UPDATE_ITEM_BEGIN)func_array[lib_index][eUPDATE_ITEM_BEGIN])(handle[lib_index], MSC_VALID_COUNT, &err_msg);/*dlopen*/
+		if (ret != 0) {
+			MSC_DBG_ERR("error : %s [%s]", g_array_index(so_array, char*, lib_index), err_msg);
+			MS_SAFE_FREE(err_msg);
+		}
+	}
+}
+
+void
+msc_update_end(void **handle)
+{
+	int lib_index;
+	int ret = 0;
+	char *err_msg = NULL;
+
+	for (lib_index = 0; lib_index < lib_num; lib_index++) {
+		ret = ((UPDATE_ITEM_END)func_array[lib_index][eUPDATE_ITEM_END])(handle[lib_index], &err_msg);/*dlopen*/
 		if (ret != 0) {
 			MSC_DBG_ERR("error : %s [%s]", g_array_index(so_array, char*, lib_index), err_msg);
 			MS_SAFE_FREE(err_msg);
