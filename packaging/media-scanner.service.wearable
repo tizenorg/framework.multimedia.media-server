@@ -1,0 +1,10 @@
+[Unit]
+Description=Media scanner
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/media-scanner
+MemoryLimit=100M
+
+[Install]
+WantedBy=multi-user.target

@@ -12,7 +12,9 @@ AM_INIT_AUTOMAKE([-Wall -Werror foreign])
 AC_CONFIG_MACRO_DIR([m4])
 
 # Checks for programs.
+m4_ifdef([AM_PROG_AR], [AM_PROG_AR])
 AC_PROG_CC
+AM_PROG_CC_C_O
 AC_PROG_INSTALL
 AC_PROG_MAKE_SET
 AC_PROG_LIBTOOL
@@ -32,6 +34,9 @@ fi
 #fi
 
 CPPFLAGS="${CPPFLAGS} -DRND_LINUX"
+
+#For supporting Large file
+CPPFLAGS="${CPPFLAGS} -D_FILE_OFFSET_BITS=64"
 
 # FMS_DEBUG - File Manager Service debug options
 # To open debug options:
@@ -64,34 +69,72 @@ PKG_CHECK_MODULES(DLOG, dlog)
 AC_SUBST(DLOG_CFLAGS)
 AC_SUBST(DLOG_LIBS)
 
-PKG_CHECK_MODULES(DRM_SERVICE, drm-client)
-AC_SUBST(DRM_SERVICE_CFLAGS)
-AC_SUBST(DRM_SERVICE_LIBS)
-
 PKG_CHECK_MODULES(PHONESTATUS, vconf)
 AC_SUBST(PHONESTATUS_CFLAGS)
 AC_SUBST(PHONESTATUS_LIBS)
-
-PKG_CHECK_MODULES(AUL, aul)
-AC_SUBST(AUL_CFLAGS)
-AC_SUBST(AUL_LIBS)
-
-PKG_CHECK_MODULES(LIBPMCONTROL, pmapi)
-AC_SUBST(LIBPMCONTROL_CFLAGS)
-AC_SUBST(LIBPMCONTROL_LIBS)
-
-PKG_CHECK_MODULES(HEYNOTI, heynoti)
-AC_SUBST(HEYNOTI_CFLAGS)
-AC_SUBST(HEYNOTI_LIBS)
 
 PKG_CHECK_MODULES(DBUS, dbus-glib-1)
 AC_SUBST(DBUS_CFLAGS)
 AC_SUBST(DBUS_LIBS)
 
-# quickpanel library
-#PKG_CHECK_MODULES(LIBQUICKPANEL, quickpanel)
-#AC_SUBST(LIBQUICKPANEL_CFLAGS)
-#AC_SUBST(LIBQUICKPANEL_LIBS)
+PKG_CHECK_MODULES(SQLITE, sqlite3)
+AC_SUBST(SQLITE3_CFLAGS)
+AC_SUBST(SQLITE3_LIBS)
+
+PKG_CHECK_MODULES(DB_UTIL, db-util)
+AC_SUBST(DB_UTIL_CFLAGS)
+AC_SUBST(DB_UTIL_LIBS)
+
+dnl use notification --------------------------------------------------------------------------
+AC_ARG_ENABLE(notification, AC_HELP_STRING([--enable-notification], [using notification]),
+[
+   case "${enableval}" in
+       yes) USE_NOTIFICATION=yes ;;
+        no) USE_NOTIFICATION=no ;;
+         *) AC_MSG_ERROR(bad value ${enableval} for --enable-notification) ;;
+   esac
+],[USE_NOTIFICATION=yes])
+if test "x$USE_NOTIFICATION" = "xyes"; then
+	#ticker noti library
+	PKG_CHECK_MODULES(STATUS, notification)
+	AC_SUBST(STATUS_CFLAGS)
+	AC_SUBST(STATUS_LIBS)
+fi
+AM_CONDITIONAL(USE_NOTIFICATION, test "x$USE_NOTIFICATION" = "xyes")
+
+
+dnl use deviced  --------------------------------------------------------------------------
+AC_ARG_ENABLE(deviced, AC_HELP_STRING([--enable-deviced], [using deviced]),
+[
+   case "${enableval}" in
+       yes) USE_DEVICED=yes ;;
+        no) USE_DEVICED=no ;;
+         *) AC_MSG_ERROR(bad value ${enableval} for --enable-deviced) ;;
+   esac
+],[USE_DEVICED=yes])
+if test "x$USE_DEVICED" = "xyes"; then
+	PKG_CHECK_MODULES(LIBPMCONTROL, deviced)
+	AC_SUBST(LIBPMCONTROL_CFLAGS)
+	AC_SUBST(LIBPMCONTROL_LIBS)
+fi
+AM_CONDITIONAL(USE_DEVICED, test "x$USE_DEVICED" = "xyes")
+
+dnl use security server --------------------------------------------------------------------------
+AC_ARG_ENABLE(security-server, AC_HELP_STRING([--enable-security-server], [using security-server]),
+[
+   case "${enableval}" in
+       yes) USE_SECURITY=yes ;;
+        no) USE_SECURITY=no ;;
+         *) AC_MSG_ERROR(bad value ${enableval} for --enable-security-security) ;;
+   esac
+],[USE_SECURITY=yes])
+if test "x$USE_SECURITY" = "xyes"; then
+	#sercurity server
+	PKG_CHECK_MODULES(SECURITY, security-server)
+	AC_SUBST(SECURITY_CFLAGS)
+	AC_SUBST(SECURITY_LIBS)
+fi
+AM_CONDITIONAL(USE_SECURITY, test "x$USE_SECURITY" = "xyes")
 
 #Checks for header files.
 AC_HEADER_DIRENT

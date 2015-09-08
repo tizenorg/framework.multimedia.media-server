@@ -1,0 +1,28 @@
+<manifest>
+	<define>
+		<domain name="media-server" policy="restricted" plist="media-thumbnail-server, media-data, media-data-sdk"/>
+		<provide>
+			<label name="media-server::vconf"/>
+		</provide>
+		<request>
+			<smack request="system::media" type="rwxat"/>
+			<smack request="system::media::root" type="rwxat"/>
+			<smack request="system::ext_storage" type="rwxat"/>
+			<smack request="system::vconf" type="rwxat"/>
+			<smack request="system::vconf_system" type="r"/>
+			<smack request="deviced" type="rwx"/>
+			<smack request="deviced::display" type="rw"/>
+			<smack request="security-server::api-privilege-by-pid" type="w"/>
+			<smack request="aul::lunch" type="x"/>
+		</request>
+	</define>
+	<request>
+		<domain name="_"/>
+	</request>
+	<assign>
+		<filesystem path="/usr/bin/media-server" label="media-server" exec_label="media-server" />
+		<filesystem path="/usr/bin/media-scanner" label="media-server" exec_label="media-server" />
+		<filesystem path="/usr/bin/mediadb-update" label="media-server" exec_label="media-server" />
+	</assign>
+</manifest>
+

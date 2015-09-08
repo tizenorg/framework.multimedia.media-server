@@ -22,34 +22,40 @@
 /**
  * This file defines api utilities of contents manager engines.
  *
- * @file		media-util-internal.h
+ * @file		media-util-noti.h
  * @author	Yong Yeon Kim(yy9875.kim@samsung.com)
  * @version	1.0
  * @brief
  */
+ #ifndef _MEDIA_UTIL_DB_H_
+#define _MEDIA_UTIL_DB_H_
 
-#ifndef _MEDIA_UTIL_INTERNAL_H_
-#define _MEDIA_UTIL_INTERNAL_H_
-
-#include "media-util-db.h"
-
-#ifndef FALSE
-#define FALSE  0
-#endif
-#ifndef TRUE
-#define TRUE   1
+#ifdef __cplusplus
+extern "C" {
 #endif
 
-#define MS_SAFE_FREE(src)      { if(src) {free(src); src = NULL;} }
-#define MS_MALLOC(src, size)	{ if (size > SIZE_MAX || size <= 0) {src = NULL;} \
-							else { src = malloc(size); memset(src, 0x0, size);} }
-#define MS_STRING_VALID(str)	\
-	((str != NULL && strlen(str) > 0) ? TRUE : FALSE)
+typedef void MediaDBHandle;		/**< Handle */
 
-int media_db_update_db(MediaDBHandle *handle, const char *query_str);
+int media_db_connect(MediaDBHandle **handle);
 
-int media_db_update_db_batch_start(const char *query_str);
-int media_db_update_db_batch(const char *query_str);
-int media_db_update_db_batch_end(MediaDBHandle *handle, const char *query_str);
+int media_db_disconnect(MediaDBHandle *handle);
 
-#endif /*_MEDIA_UTIL_INTERNAL_H_*/
+int media_db_request_update_db(const char *query_str);
+
+int media_db_request_update_db_batch_start(const char *query_str);
+
+int media_db_request_update_db_batch(const char *query_str);
+
+int media_db_request_update_db_batch_end(const char *query_str);
+
+int media_db_request_update_db_batch_clear(void);
+
+/**
+* @}
+*/
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif /*_MEDIA_UTIL_DB_H_*/

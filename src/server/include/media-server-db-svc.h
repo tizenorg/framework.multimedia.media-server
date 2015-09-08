@@ -1,5 +1,5 @@
 /*
- *  Media Utility
+ *  Media Server
  *
  * Copyright (c) 2000 - 2011 Samsung Electronics Co., Ltd. All rights reserved.
  *
@@ -22,34 +22,37 @@
 /**
  * This file defines api utilities of contents manager engines.
  *
- * @file		media-util-internal.h
+ * @file		media-server-db-svc.h
  * @author	Yong Yeon Kim(yy9875.kim@samsung.com)
  * @version	1.0
  * @brief
  */
+#ifndef _MEDIA_SERVER_DB_SVC_H_
+#define _MEDIA_SERVER_DB_SVC_H_
 
-#ifndef _MEDIA_UTIL_INTERNAL_H_
-#define _MEDIA_UTIL_INTERNAL_H_
+#include "media-common-types.h"
 
-#include "media-util-db.h"
+typedef int (*CONNECT)(void**, char **);
+typedef int (*DISCONNECT)(void*, char **);
+typedef int (*SET_ALL_STORAGE_ITEMS_VALIDITY)(void*, int, int, char **);
+typedef int (*CHECK_DB)(void*, char **);
 
-#ifndef FALSE
-#define FALSE  0
-#endif
-#ifndef TRUE
-#define TRUE   1
-#endif
+int
+ms_load_functions(void);
 
-#define MS_SAFE_FREE(src)      { if(src) {free(src); src = NULL;} }
-#define MS_MALLOC(src, size)	{ if (size > SIZE_MAX || size <= 0) {src = NULL;} \
-							else { src = malloc(size); memset(src, 0x0, size);} }
-#define MS_STRING_VALID(str)	\
-	((str != NULL && strlen(str) > 0) ? TRUE : FALSE)
+void
+ms_unload_functions(void);
 
-int media_db_update_db(MediaDBHandle *handle, const char *query_str);
+int
+ms_connect_db(void ***handle);
 
-int media_db_update_db_batch_start(const char *query_str);
-int media_db_update_db_batch(const char *query_str);
-int media_db_update_db_batch_end(MediaDBHandle *handle, const char *query_str);
+int
+ms_disconnect_db(void ***handle);
 
-#endif /*_MEDIA_UTIL_INTERNAL_H_*/
+int
+ms_invalidate_all_items(void **handle, ms_storage_type_t store_type);
+
+int
+ms_check_db_upgrade(void **handle);
+
+#endif /*_MEDIA_SERVER_DB_SVC_H_*/

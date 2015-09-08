@@ -1,5 +1,5 @@
 /*
- *  Media Utility
+ *  Media Server
  *
  * Copyright (c) 2000 - 2011 Samsung Electronics Co., Ltd. All rights reserved.
  *
@@ -22,34 +22,21 @@
 /**
  * This file defines api utilities of contents manager engines.
  *
- * @file		media-util-internal.h
+ * @file		media-server-thumb.c
  * @author	Yong Yeon Kim(yy9875.kim@samsung.com)
  * @version	1.0
  * @brief
  */
+#ifndef _MEDIA_SCANNER_SOCKET_H_
+#define _MEDIA_SCANNER_SOCKET_H_
 
-#ifndef _MEDIA_UTIL_INTERNAL_H_
-#define _MEDIA_UTIL_INTERNAL_H_
+#include "media-common-types.h"
+#include "media-server-ipc.h"
 
-#include "media-util-db.h"
+gboolean msc_receive_request(GIOChannel *src, GIOCondition condition, gpointer data);
 
-#ifndef FALSE
-#define FALSE  0
-#endif
-#ifndef TRUE
-#define TRUE   1
-#endif
+int msc_send_ready(void);
 
-#define MS_SAFE_FREE(src)      { if(src) {free(src); src = NULL;} }
-#define MS_MALLOC(src, size)	{ if (size > SIZE_MAX || size <= 0) {src = NULL;} \
-							else { src = malloc(size); memset(src, 0x0, size);} }
-#define MS_STRING_VALID(str)	\
-	((str != NULL && strlen(str) > 0) ? TRUE : FALSE)
+int msc_send_result(int result, ms_comm_msg_s *scan_data);
 
-int media_db_update_db(MediaDBHandle *handle, const char *query_str);
-
-int media_db_update_db_batch_start(const char *query_str);
-int media_db_update_db_batch(const char *query_str);
-int media_db_update_db_batch_end(MediaDBHandle *handle, const char *query_str);
-
-#endif /*_MEDIA_UTIL_INTERNAL_H_*/
+#endif /*_MEDIA_SCANNER_SOCKET_H_*/
