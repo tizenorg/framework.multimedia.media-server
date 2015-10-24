@@ -19,15 +19,6 @@
  *
  */
 
-/**
- * This file defines api utilities of media db write.
- *
- * @file		media-server-db.c
- * @author	Haejeong Kim(backto.kim@samsung.com)
- * @version	1.0
- * @brief
- */
-
 #include <unistd.h>
 
 #include "media-util.h"
@@ -63,7 +54,7 @@ gboolean ms_db_thread(void *data)
 	MediaDBHandle *db_handle = NULL;
 
 	/* Connect Media DB*/
-	if(media_db_connect(&db_handle) != MS_MEDIA_ERR_NONE) {
+	if(media_db_connect(0, &db_handle, TRUE) != MS_MEDIA_ERR_NONE) {
 		MS_DBG_ERR("Failed to connect DB");
 		return FALSE;
 	}

@@ -19,15 +19,6 @@
  *
  */
 
-/**
- * This file defines api utilities of Media DB.
- *
- * @file		media-util-db.c
- * @author	Haejeong Kim(backto.kim@samsung.com)
- * @version	1.0
- * @brief
- */
-
 #include <unistd.h>
 #include <string.h>
 #include <errno.h>
@@ -41,7 +32,7 @@ static __thread char **sql_list = NULL;
 static __thread int g_list_idx = 0;
 
 static int __media_db_busy_handler(void *pData, int count);
-static int __media_db_connect_db_with_handle(sqlite3 **db_handle);
+static int __media_db_connect_db_with_handle(pid_t pid, sqlite3 **db_handle, bool need_write);
 static int __media_db_disconnect_db_with_handle(sqlite3 *db_handle);
 
 static void __media_db_destroy_sql_list()
@@ -62,16 +53,23 @@ static int __media_db_busy_handler(void *pData, int count)
 
 	MSAPI_DBG("media_db_busy_handler called : %d", count);
 
-	return 100 - count;
+	return 200 - count;
 }
 
-static int __media_db_connect_db_with_handle(sqlite3 **db_handle)
+static int __media_db_connect_db_with_handle(pid_t pid, sqlite3 **db_handle, bool need_write)
 {
-	int ret = MS_MEDIA_ERR_NONE;
+	int ret = SQLITE_OK;
+	char db_path[256] = {0, };
+	memset(db_path, 0, sizeof(db_path));
+
+	snprintf(db_path, sizeof(db_path), "%s", MEDIA_DB_NAME);
 
 	/*Connect DB*/
-	ret = db_util_open(MEDIA_DB_NAME, db_handle, DB_UTIL_REGISTER_HOOK_METHOD);
-
+	if (need_write) {
+		ret = db_util_open_with_options(db_path, db_handle, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE, NULL);
+	} else {
+		ret = db_util_open_with_options(db_path, db_handle, SQLITE_OPEN_READONLY, NULL);
+	}
 	if (SQLITE_OK != ret) {
 
 		MSAPI_DBG_ERR("error when db open");
@@ -335,24 +333,39 @@ static int __media_db_request_batch_update(ms_msg_type_e msg_type, const char *r
 	return ret;
 }
 
+#define RETRY_CNT 9
+#define SLEEP_TIME 1000 * 1000
 static int _media_db_update_directly(sqlite3 *db_handle, const char *sql_str)
 {
 	int ret = MS_MEDIA_ERR_NONE;
 	char *zErrMsg = NULL;
+	int retry_count = 0;
 
 //	MSAPI_DBG_SLOG("SQL = [%s]", sql_str);
 
+EXEC_RETRY:
 	ret = sqlite3_exec(db_handle, sql_str, NULL, NULL, &zErrMsg);
 
 	if (SQLITE_OK != ret) {
 		MSAPI_DBG_ERR("DB Update Fail SQL:%s", sql_str);
 		MSAPI_DBG_ERR("ERROR [%s]", zErrMsg);
-		if (ret == SQLITE_BUSY)
+		if (ret == SQLITE_BUSY) {
 			ret = MS_MEDIA_ERR_DB_BUSY_FAIL;
-		else if (ret == SQLITE_CONSTRAINT)
+		} else if (ret == SQLITE_CONSTRAINT) {
 			ret = MS_MEDIA_ERR_DB_CONSTRAINT_FAIL;
-		else
+		} else if (ret == SQLITE_FULL) {
+			ret = MS_MEDIA_ERR_DB_FULL_FAIL;
+		} else if (ret == SQLITE_LOCKED) {
+			if (retry_count < RETRY_CNT) {
+				MSAPI_DBG_ERR("Locked retry[%d]", retry_count);
+				retry_count++;
+				usleep(SLEEP_TIME);
+				goto EXEC_RETRY;
+			}
 			ret = MS_MEDIA_ERR_DB_UPDATE_FAIL;
+		} else {
+			ret = MS_MEDIA_ERR_DB_UPDATE_FAIL;
+		}
 	}
 
 	if (zErrMsg)
@@ -361,14 +374,14 @@ static int _media_db_update_directly(sqlite3 *db_handle, const char *sql_str)
 	return ret;
 }
 
-int media_db_connect(MediaDBHandle **handle)
+int media_db_connect(pid_t pid, MediaDBHandle **handle, bool need_write)
 {
 	int ret = MS_MEDIA_ERR_NONE;
 	sqlite3 * db_handle = NULL;
 
 	MSAPI_DBG_FUNC();
 
-	ret = __media_db_connect_db_with_handle(&db_handle);
+	ret = __media_db_connect_db_with_handle(pid, &db_handle, need_write);
 	MSAPI_RETV_IF(ret != MS_MEDIA_ERR_NONE, ret);
 
 	*handle = db_handle;
@@ -484,9 +497,9 @@ int media_db_update_db_batch_start(const char *query_str)
 		ret = MS_MEDIA_ERR_DB_SERVER_BUSY_FAIL;
 	} else {
 		sql_list = (char**)malloc(sizeof(char*));
-		MSAPI_RETVM_IF(sql_list == NULL, MS_MEDIA_ERR_ALLOCATE_MEMORY_FAIL, "Out of memory");
+		MSAPI_RETVM_IF(sql_list == NULL, MS_MEDIA_ERR_OUT_OF_MEMORY, "Out of memory");
 		sql_list[g_list_idx++] = strdup(query_str);
-		MSAPI_RETVM_IF(sql_list[g_list_idx - 1] == NULL, MS_MEDIA_ERR_ALLOCATE_MEMORY_FAIL, "Out of memory");
+		MSAPI_RETVM_IF(sql_list[g_list_idx - 1] == NULL, MS_MEDIA_ERR_OUT_OF_MEMORY, "Out of memory");
 	}
 
 	return ret;
@@ -499,10 +512,10 @@ int media_db_update_db_batch(const char *query_str)
 	MSAPI_RETVM_IF(!MS_STRING_VALID(query_str), MS_MEDIA_ERR_INVALID_PARAMETER, "Invalid Query");
 
 	sql_list = (char**)realloc(sql_list, (g_list_idx + 1) * sizeof(char*));
-	MSAPI_RETVM_IF(sql_list == NULL, MS_MEDIA_ERR_ALLOCATE_MEMORY_FAIL, "Out of memory");
+	MSAPI_RETVM_IF(sql_list == NULL, MS_MEDIA_ERR_OUT_OF_MEMORY, "Out of memory");
 
 	sql_list[g_list_idx++] = strdup(query_str);
-	MSAPI_RETVM_IF(sql_list[g_list_idx - 1] == NULL, MS_MEDIA_ERR_ALLOCATE_MEMORY_FAIL, "Out of memory");
+	MSAPI_RETVM_IF(sql_list[g_list_idx - 1] == NULL, MS_MEDIA_ERR_OUT_OF_MEMORY, "Out of memory");
 
 	return ret;
 }
@@ -522,14 +535,14 @@ int media_db_update_db_batch_end(MediaDBHandle *handle, const char *query_str)
 	if (sql_list == NULL) {
 		__media_db_destroy_sql_list();
 		MSAPI_DBG_ERR("Out of memory");
-		return MS_MEDIA_ERR_ALLOCATE_MEMORY_FAIL;
+		return MS_MEDIA_ERR_OUT_OF_MEMORY;
 	}
 
 	sql_list[g_list_idx++] = strdup(query_str);
 	if (sql_list[g_list_idx - 1] == NULL) {
 		__media_db_destroy_sql_list();
 		MSAPI_DBG_ERR("Out of memory");
-		return MS_MEDIA_ERR_ALLOCATE_MEMORY_FAIL;
+		return MS_MEDIA_ERR_OUT_OF_MEMORY;
 	}
 
 	int i = 0;

@@ -26,12 +26,17 @@
 #include <sys/stat.h>
 #include <unistd.h>
 #include <dirent.h>
-
+#include <dlfcn.h>
 
 #include <glib.h>
 #include "media-util.h"
 
 GMainLoop * mainloop = NULL;
+
+int (*svc_connect)				(void ** handle, char ** err_msg);
+int (*svc_disconnect)			(void * handle, char ** err_msg);
+int (*svc_check_db)			(void * handle, char ** err_msg);
+int (*svc_get_storage_id)		(void * handle, const char *path, char *storage_id, char ** err_msg);
 
 void callback(media_request_result_s * result, void *user_data)
 {
@@ -57,14 +62,92 @@ void print_help()
 	printf("=======================================================================================\n");
 }
 
-int dir_scan_non_recursive(char *path)
+static void __check_media_db(void)
 {
-	return media_directory_scanning_async(path, FALSE, callback, NULL);
+	void *funcHandle = NULL;
+	void *db_handle = NULL;
+	char *err_msg = NULL;
+	int ret = 0;
+
+	funcHandle = dlopen ("/usr/lib/libmedia-content-plugin.so", RTLD_LAZY);
+	if(funcHandle == NULL)
+	{
+		printf("Error when open plug-in\n");
+		return;
+	}
+
+	svc_connect			= dlsym (funcHandle, "connect_db");
+	svc_disconnect		= dlsym (funcHandle, "disconnect_db");
+	svc_check_db 		= dlsym (funcHandle, "check_db");
+
+	ret = svc_connect(&db_handle, &err_msg);
+	if(ret < 0)
+		printf("Error svc_connect\n");
+
+	ret = svc_check_db(db_handle, &err_msg);
+	if(ret < 0)
+		printf("Error svc_check_db\n");
+
+	ret = svc_disconnect(db_handle, &err_msg);
+	if(ret < 0)
+		printf("Error svc_disconnect\n");
+
+	printf("Check media db done\n");
+
+	dlclose (funcHandle);
+}
+
+static void __get_storage_id(const char *path, char *storage_id)
+{
+	void *funcHandle = NULL;
+	void *db_handle = NULL;
+	char *err_msg = NULL;
+	int ret = 0;
+
+	funcHandle = dlopen ("/usr/lib/libmedia-content-plugin.so", RTLD_LAZY);
+	if(funcHandle == NULL)
+	{
+		printf("Error when open plug-in\n");
+		return;
+	}
+
+	svc_connect			= dlsym (funcHandle, "connect_db");
+	svc_disconnect		= dlsym (funcHandle, "disconnect_db");
+	svc_get_storage_id 	= dlsym (funcHandle, "get_storage_id");
+
+	ret = svc_connect(&db_handle, &err_msg);
+	if(ret < 0)
+		printf("Error svc_connect\n");
+
+	ret = svc_get_storage_id(db_handle, path, storage_id, &err_msg);
+	if(ret < 0)
+		printf("Error svc_get_storage_id\n");
+
+	ret = svc_disconnect(db_handle, &err_msg);
+	if(ret < 0)
+		printf("Error svc_disconnect\n");
+
+	printf("Start Scanning for [%s][%s]\n", path, storage_id);
+
+	dlclose (funcHandle);
+}
+
+int dir_scan_non_recursive(const char *path)
+{
+	char storage_id[36+1] = {0,};
+
+	__get_storage_id(path, storage_id);
+
+	return media_directory_scanning_async(path, storage_id, FALSE, callback, NULL);
 }
 
 int dir_scan_recursive(char *path)
 {
-	return media_directory_scanning_async(path, TRUE, callback, NULL);
+	char storage_id[36+1] = {0,};
+
+	__get_storage_id(path, storage_id);
+
+	return media_directory_scanning_async(path, storage_id, TRUE, callback, NULL);
 }
 
 typedef enum {
@@ -125,29 +208,22 @@ int main(int argc, char **argv)
 			exit(1);
 		}
 
-		if (check_path(argv1) == DIRECTORY_OK) {
-			ret = dir_scan_non_recursive(argv1);
-			if (ret != 0) {
-				printf("error : %d\n", ret);
-				exit(1);
-			}
-		} else {
-			printf("[%d]invalid path\n", __LINE__);
-			print_help();
+		if (strcmp(argv1 , "check_db") == 0) {
+			__check_media_db();
+			exit(1);
+		}
+
+		ret = dir_scan_non_recursive(argv1);
+		if (ret != 0) {
+			printf("error : %d\n", ret);
 			exit(1);
 		}
 	} else if (argc == 3) {
 		argv2 = strdup(argv[2]);
 		if (strcmp(argv1, "-r") == 0) {
-			if (check_path(argv2) == DIRECTORY_OK) {
-				ret = dir_scan_recursive(argv2);
-				if (ret != 0) {
-					printf("error : %d\n", ret);
-					exit(1);
-				}
-			} else {
-				printf("[%d]invalid path\n", __LINE__);
-				print_help();
+			ret = dir_scan_recursive(argv2);
+			if (ret != 0) {
+				printf("error : %d\n", ret);
 				exit(1);
 			}
 		} else {

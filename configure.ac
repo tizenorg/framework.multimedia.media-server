@@ -38,6 +38,8 @@ CPPFLAGS="${CPPFLAGS} -DRND_LINUX"
 #For supporting Large file
 CPPFLAGS="${CPPFLAGS} -D_FILE_OFFSET_BITS=64"
 
+#CPPFLAGS="${CPPFLAGS} -D_USE_TV_PROFILE"
+
 # FMS_DEBUG - File Manager Service debug options
 # To open debug options:
 # export FMS_DEBUG=1 or configure --enable-debug
@@ -77,6 +79,10 @@ PKG_CHECK_MODULES(DBUS, dbus-glib-1)
 AC_SUBST(DBUS_CFLAGS)
 AC_SUBST(DBUS_LIBS)
 
+PKG_CHECK_MODULES(GIO, gio-2.0)
+AC_SUBST(GIO_CFLAGS)
+AC_SUBST(GIO_LIBS)
+
 PKG_CHECK_MODULES(SQLITE, sqlite3)
 AC_SUBST(SQLITE3_CFLAGS)
 AC_SUBST(SQLITE3_LIBS)
@@ -84,6 +90,14 @@ AC_SUBST(SQLITE3_LIBS)
 PKG_CHECK_MODULES(DB_UTIL, db-util)
 AC_SUBST(DB_UTIL_CFLAGS)
 AC_SUBST(DB_UTIL_LIBS)
+
+PKG_CHECK_MODULES(INIPARSER, iniparser)
+AC_SUBST(INIPARSER_CFLAGS)
+AC_SUBST(INIPARSER_LIBS)
+
+PKG_CHECK_MODULES(SMACK, libsmack)
+AC_SUBST(SMACK_CFLAGS)
+AC_SUBST(SMACK_LIBS)
 
 dnl use notification --------------------------------------------------------------------------
 AC_ARG_ENABLE(notification, AC_HELP_STRING([--enable-notification], [using notification]),

@@ -19,14 +19,6 @@
  *
  */
 
-/**
- * This file defines IPC protocol
- *
- * @file		media-server-ipc.h
- * @author	Haejeong Kim(backto.kim@samsung.com)
- * @version	1.0
- * @brief
- */
 #ifndef _MEDIA_SERVER_IPC_H_
 #define _MEDIA_SERVER_IPC_H_
 
@@ -66,6 +58,9 @@ typedef enum{
 	MS_MSG_SCANNER_RESULT,				/**< Result of directory scanning */
 	MS_MSG_SCANNER_BULK_RESULT,			/**< Request bulk insert */
 	MS_MSG_STORAGE_META,				/**< Request updating meta data */
+	MS_MSG_DIRECTORY_SCANNING_CANCEL,	/**< Request cancel directory scan*/
+	MS_MSG_STORAGE_SCANNER_COMPLETE,	/**< Storage Scanner complete */
+	MS_MSG_DIRECTORY_SCANNER_COMPLETE,	/**< Directory Scanner complete */
 	MS_MSG_MAX							/**< Invalid msg type */
 }ms_msg_type_e;
 
@@ -79,12 +74,15 @@ typedef struct
 	char *sock_path;
 }ms_sock_info_s;
 
+#define MS_UUID_SIZE 37 /* size of uuid + NULL */
+
 typedef struct
 {
 	ms_msg_type_e msg_type;
 	int pid;
 	int result;
 	size_t msg_size; /*this is size of message below and this does not include the terminationg null byte ('\0'). */
+	char storage_id[MS_UUID_SIZE];
 	char msg[MAX_MSG_SIZE];
 }ms_comm_msg_s;
 
@@ -104,7 +102,7 @@ typedef struct {
 
 typedef struct _thumbMsg{
 	int msg_type;
-	int thumb_type;
+	int request_id;
 	int status;
 	int pid;
 	int thumb_size;
@@ -114,9 +112,14 @@ typedef struct _thumbMsg{
 	int origin_height;
 	int origin_path_size;
 	int dest_path_size;
+	unsigned char *thumb_data;
 	char org_path[MAX_FILEPATH_LEN];
 	char dst_path[MAX_FILEPATH_LEN];
 } thumbMsg;
 
+typedef struct _thumbRawAddMsg{
+	int thumb_size;
+	unsigned char *thumb_data;
+} thumbRawAddMsg;
 
 #endif /*_MEDIA_SERVER_IPC_H_*/

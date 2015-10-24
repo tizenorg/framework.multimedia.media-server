@@ -19,40 +19,16 @@
  *
  */
 
-/**
- * This file defines api utilities of contents manager engines.
- *
- * @file		media-server-db-svc.h
- * @author	Yong Yeon Kim(yy9875.kim@samsung.com)
- * @version	1.0
- * @brief
- */
-#ifndef _MEDIA_SERVER_DB_SVC_H_
-#define _MEDIA_SERVER_DB_SVC_H_
+#ifndef _MEDIA_SCANNER_SOCKET_V2_H_
+#define _MEDIA_SCANNER_SOCKET_V2_H_
 
 #include "media-common-types.h"
+#include "media-server-ipc.h"
 
-typedef int (*CONNECT)(void**, char **);
-typedef int (*DISCONNECT)(void*, char **);
-typedef int (*SET_ALL_STORAGE_ITEMS_VALIDITY)(void*, int, int, char **);
-typedef int (*CHECK_DB)(void*, char **);
+gboolean msc_receive_request(GIOChannel *src, GIOCondition condition, gpointer data);
 
-int
-ms_load_functions(void);
+int msc_send_ready(void);
 
-void
-ms_unload_functions(void);
+int msc_send_result(int result, ms_comm_msg_s *scan_data);
 
-int
-ms_connect_db(void ***handle);
-
-int
-ms_disconnect_db(void ***handle);
-
-int
-ms_invalidate_all_items(void **handle, ms_storage_type_t store_type);
-
-int
-ms_check_db_upgrade(void **handle);
-
-#endif /*_MEDIA_SERVER_DB_SVC_H_*/
+#endif /*_MEDIA_SCANNER_SOCKET_V2_H_*/

@@ -19,24 +19,18 @@
  *
  */
 
-/**
- * This file defines api utilities of contents manager engines.
- *
- * @file		media-util-noti.h
- * @author	Yong Yeon Kim(yy9875.kim@samsung.com)
- * @version	1.0
- * @brief
- */
- #ifndef _MEDIA_UTIL_DB_H_
+#ifndef _MEDIA_UTIL_DB_H_
 #define _MEDIA_UTIL_DB_H_
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
+#include <stdbool.h>
+
 typedef void MediaDBHandle;		/**< Handle */
 
-int media_db_connect(MediaDBHandle **handle);
+int media_db_connect(pid_t pid, MediaDBHandle **handle, bool need_write);
 
 int media_db_disconnect(MediaDBHandle *handle);
 

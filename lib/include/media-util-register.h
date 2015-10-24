@@ -19,15 +19,7 @@
  *
  */
 
-/**
- * This file defines api utilities of contents manager engines.
- *
- * @file		media-util-register.h
- * @author	Yong Yeon Kim(yy9875.kim@samsung.com)
- * @version	1.0
- * @brief
- */
- #ifndef _MEDIA_UTIL_REGISTER_H_
+#ifndef _MEDIA_UTIL_REGISTER_H_
 #define _MEDIA_UTIL_REGISTER_H_
 
 #include <glib.h>
@@ -54,7 +46,9 @@ typedef struct
 typedef void (*scan_complete_cb)(media_request_result_s *, void *);
 typedef void (*insert_complete_cb)(media_request_result_s *, void *);
 
-int media_directory_scanning_async(const char *directory_path, bool recursive_on, scan_complete_cb user_callback, void *user_data);
+int media_directory_scanning_async(const char *directory_path, const char *storage_id, bool recursive_on, scan_complete_cb user_callback, void *user_data);
+
+int media_directory_scanning_cancel(const char *directory_path);
 
 int media_files_register(const char *list_path, insert_complete_cb user_callback, void *user_data);
 

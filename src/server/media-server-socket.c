@@ -18,38 +18,31 @@
  * limitations under the License.
  *
  */
-
-/**
- * This file defines api utilities of contents manager engines.
- *
- * @file		media-server-thumb.c
- * @author	Yong Yeon Kim(yy9875.kim@samsung.com)
- * @version	1.0
- * @brief
- */
+#define _GNU_SOURCE
 #include <arpa/inet.h>
 #include <sys/types.h>
 #include <sys/stat.h>
+#include <sys/socket.h>
 #include <fcntl.h>
 #include <sys/un.h>
 #include <errno.h>
 #include <malloc.h>
 #include <vconf.h>
-#include <security-server.h>
 
 #include "media-util.h"
 #include "media-util-internal.h"
 #include "media-server-ipc.h"
 #include "media-common-utils.h"
+#include "media-common-db-svc.h"
+#include "media-common-security.h"
 #include "media-server-dbg.h"
-#include "media-server-db-svc.h"
 #include "media-server-scanner.h"
 #include "media-server-socket.h"
 
 extern GAsyncQueue *scan_queue;
 GAsyncQueue* ret_queue;
 GArray *owner_list;
-extern GMutex *scanner_mutex;
+GMutex scanner_mutex;
 gint cur_running_task;
 
 extern bool power_off;
@@ -59,41 +52,57 @@ typedef struct ms_req_owner_data
 	int pid;
 	int index;
 	int client_sockfd;
+	char *req_path;
 }ms_req_owner_data;
 
-static int __ms_add_owner(int pid, int client_sock)
+static int __ms_add_owner(int pid, int client_sock, char *path)
 {
 	if (pid != 0) {
 		ms_req_owner_data *owner_data = NULL;
+		int len = strlen(path);
 
-		/* If owner list is NULL, create it */
-		/* pid and client address are stored in ower list */
-		/* These are used for sending result of scanning */
-		if (owner_list == NULL) {
-			/*create array for processing overlay data*/
-			owner_list = g_array_new (FALSE, FALSE, sizeof (ms_req_owner_data *));
+		if (len > 0) {
+			/* If owner list is NULL, create it */
+			/* pid and client address are stored in ower list */
+			/* These are used for sending result of scanning */
 			if (owner_list == NULL) {
-				MS_DBG_ERR("g_array_new error");
-				return MS_MEDIA_ERR_ALLOCATE_MEMORY_FAIL;
+				/*create array for processing overlay data*/
+				owner_list = g_array_new (FALSE, FALSE, sizeof (ms_req_owner_data *));
+				if (owner_list == NULL) {
+					MS_DBG_ERR("g_array_new error");
+					return MS_MEDIA_ERR_OUT_OF_MEMORY;
+				}
 			}
+
+			/* store pid and client address */
+			MS_MALLOC(owner_data, sizeof(ms_req_owner_data));
+
+			if (owner_data == NULL) {
+				MS_DBG_ERR("MS_MALLOC failed");
+				g_array_free (owner_list, FALSE);
+				owner_list = NULL;
+				return MS_MEDIA_ERR_OUT_OF_MEMORY;
+			}
+
+			owner_data->pid = pid;
+			owner_data->client_sockfd = client_sock;
+
+			if (path[len -1] == '/')
+				path[len -1] = '\0';
+			owner_data->req_path = strdup(path);
+		//	MS_DBG("the length of array : %d", owner_list->len);
+		//	MS_DBG("pid : %d", owner_data->pid);
+		//	MS_DBG("client_addr : %p", owner_data->client_addr);
+
+			owner_data->index = -1;
+			g_array_append_val(owner_list, owner_data);
 		}
-
-		/* store pid and client address */
-		MS_MALLOC(owner_data, sizeof(ms_req_owner_data));
-		owner_data->pid = pid;
-		owner_data->client_sockfd = client_sock;
-	//	MS_DBG("the length of array : %d", owner_list->len);
-	//	MS_DBG("pid : %d", owner_data->pid);
-	//	MS_DBG("client_addr : %p", owner_data->client_addr);
-
-		owner_data->index = -1;
-		g_array_append_val(owner_list, owner_data);
 	}
 
 	return MS_MEDIA_ERR_NONE;
 }
 
-static int __ms_find_owner(int pid, ms_req_owner_data **owner_data)
+static int __ms_find_owner(int pid, const char *req_path, ms_req_owner_data **owner_data)
 {
 	int i;
 	int len = owner_list->len;
@@ -106,7 +115,8 @@ static int __ms_find_owner(int pid, ms_req_owner_data **owner_data)
 	for (i=0; i < len; i++) {
 		data = g_array_index(owner_list, ms_req_owner_data*, i);
 		MS_DBG("%d %d", data->pid, pid);
-		if (data->pid == pid) {
+		MS_DBG("%s %s", data->req_path, req_path);
+		if (data->pid == pid && (strcmp(data->req_path, req_path) == 0)) {
 			data->index = i;
 			*owner_data = data;
 			MS_DBG("FIND OWNER");
@@ -121,6 +131,7 @@ static int __ms_delete_owner(ms_req_owner_data *owner_data)
 {
 	if (owner_data->index != -1) {
 		g_array_remove_index(owner_list, owner_data->index);
+		MS_SAFE_FREE(owner_data->req_path);
 		MS_SAFE_FREE(owner_data);
 		MS_DBG("DELETE OWNER");
 	}
@@ -130,13 +141,23 @@ static int __ms_delete_owner(ms_req_owner_data *owner_data)
 
 static int __ms_send_result_to_client(int pid, ms_comm_msg_s *recv_msg)
 {
+	if(strlen(recv_msg->msg) == 0) {
+		MS_DBG_ERR("msg is NULL");
+		return MS_MEDIA_ERR_INVALID_PARAMETER;
+	}
+
 	if (owner_list != NULL) {
 		/* If the owner of result message is not media-server, media-server notify to the owner */
 		/* The owner of message is distingushied by pid in received message*/
 		/* find owner data */
 		ms_req_owner_data *owner_data = NULL;
+		char *res_path = strdup(recv_msg->msg);
+		if(res_path  == NULL) {
+			MS_DBG_ERR("res_path is NULL");
+			return MS_MEDIA_ERR_OUT_OF_MEMORY;
+		}
 
-		__ms_find_owner(pid, &owner_data);
+		__ms_find_owner(pid, res_path, &owner_data);
 		if (owner_data != NULL) {
 			MS_DBG("PID : %d", owner_data->pid);
 			/* owner data exists */
@@ -144,10 +165,13 @@ static int __ms_send_result_to_client(int pid, ms_comm_msg_s *recv_msg)
 			ms_ipc_send_msg_to_client_tcp(owner_data->client_sockfd, recv_msg, NULL);
 			close(owner_data->client_sockfd);
 
+			MS_SAFE_FREE(res_path);
+
 			/* free owner data*/
 			__ms_delete_owner(owner_data);
 		} else {
 			MS_DBG_ERR("Not found Owner");
+			MS_SAFE_FREE(res_path);
 			return MS_MEDIA_ERR_INTERNAL;
 		}
 	} else {
@@ -170,13 +194,13 @@ static int __ms_privilege_check(const char *msg, gboolean *privilege)
 	int t_idx = 0;
 	gboolean is_privilege = TRUE;
 
-	char *operation[operation_cnt] = {
+	const char *operation[operation_cnt] = {
 		"INSERT INTO ",
 		"DELETE FROM ",
 		"UPDATE "
 	};
 
-	char *db_table[db_table_cnt] = {
+	const char *db_table[db_table_cnt] = {
 		"playlist_map",
 		"playlist",
 		"tag_map",
@@ -207,27 +231,28 @@ static int __ms_privilege_check(const char *msg, gboolean *privilege)
 	return MS_MEDIA_ERR_NONE;
 }
 
-static int __ms_privilege_ask(int client_sockfd)
+static int __ms_get_peer_pid(int sockfd)
 {
-	int ret = 0;
-	int res = MS_MEDIA_ERR_NONE;
+	struct ucred uc;
+	socklen_t uc_len = sizeof(uc);
 
-	ret = security_server_check_privilege_by_sockfd(client_sockfd, "media-data::db", "w");
-	if (ret == SECURITY_SERVER_API_ERROR_ACCESS_DENIED) {
-		MS_DBG_ERR("You do not have permission for this operation.");
-		res = MS_MEDIA_ERR_PERMISSION_DENIED;
-	} else {
-		MS_DBG("PERMISSION OK");
+	if (getsockopt(sockfd, SOL_SOCKET, SO_PEERCRED, &uc, &uc_len) < 0) {
+		MS_DBG_STRERROR("Credential failed");
+		return -1;
 	}
 
-	return res;
+	MS_DBG_ERR("Credential pid = %d\n", uc.pid);
+
+	return uc.pid;
 }
+
 gboolean ms_read_socket(gpointer user_data)
 {
 	ms_comm_msg_s recv_msg;
 	int sockfd = MS_SOCK_NOT_ALLOCATE;
 	int ret;
 	int res;
+	int pid;
 	int req_num = -1;
 	int client_sock = -1;
 	GIOChannel *src = user_data;
@@ -250,7 +275,7 @@ gboolean ms_read_socket(gpointer user_data)
 		goto ERROR;
 	}
 
-	ret = __ms_privilege_ask(client_sock);
+	ret = ms_privilege_ask(client_sock);
 	if (ret == MS_MEDIA_ERR_PERMISSION_DENIED) {
 		res = MS_MEDIA_ERR_PERMISSION_DENIED;
 		goto ERROR;
@@ -258,17 +283,30 @@ gboolean ms_read_socket(gpointer user_data)
 
 	/* copy received data */
 	req_num = recv_msg.msg_type;
+	pid = recv_msg.pid;
 
 	/* register file request
          * media server inserts the meta data of one file into media db */
 	if (req_num == MS_MSG_DIRECTORY_SCANNING
 		||req_num == MS_MSG_BULK_INSERT
 		||req_num == MS_MSG_DIRECTORY_SCANNING_NON_RECURSIVE
-		|| req_num == MS_MSG_BURSTSHOT_INSERT) {
+		|| req_num == MS_MSG_BURSTSHOT_INSERT
+		|| req_num == MS_MSG_DIRECTORY_SCANNING_CANCEL) {
+
+		if (req_num == MS_MSG_BULK_INSERT
+			||req_num == MS_MSG_BURSTSHOT_INSERT ) {
+			/*check pid by client sock fd*/
+			pid = __ms_get_peer_pid(client_sock);
+			recv_msg.pid = pid;
+		}
+
 		if ((ret = ms_send_scan_request(&recv_msg, client_sock)) != MS_MEDIA_ERR_NONE) {
 			res = ret;
 			goto ERROR;
 		}
+
+		if (req_num == MS_MSG_DIRECTORY_SCANNING_CANCEL)
+			ms_remove_request_owner(pid, recv_msg.msg);
 	} else {
 		/* NEED IMPLEMENTATION */
 		close(client_sock);
@@ -292,6 +330,8 @@ ERROR:
 			case MS_MSG_BULK_INSERT:
 			case MS_MSG_BURSTSHOT_INSERT:
 				res_msg.msg_type = MS_MSG_SCANNER_BULK_RESULT;
+				break;
+			default :
 				break;
 		}
 
@@ -335,16 +375,16 @@ int ms_send_scan_request(ms_comm_msg_s *send_msg, int client_sock)
 	int err =  MS_MEDIA_ERR_NONE;
 	int pid = send_msg->pid;
 
-	g_mutex_lock(scanner_mutex);
+	g_mutex_lock(&scanner_mutex);
 
 	if (ms_get_scanner_status()) {
 		MS_DBG_WARN("Scanner is ready");
 		__ms_send_request(send_msg);
 
-		g_mutex_unlock(scanner_mutex);
+		g_mutex_unlock(&scanner_mutex);
 	} else {
 		MS_DBG_WARN("Scanner starts");
-		g_mutex_unlock(scanner_mutex);
+		g_mutex_unlock(&scanner_mutex);
 
 		err = ms_scanner_start();
 		if(err == MS_MEDIA_ERR_NONE) {
@@ -358,9 +398,9 @@ int ms_send_scan_request(ms_comm_msg_s *send_msg, int client_sock)
 		}
 	}
 
-	if (res == MS_MEDIA_ERR_NONE) {
+	if ((res == MS_MEDIA_ERR_NONE) && (send_msg->msg_type != MS_MSG_DIRECTORY_SCANNING_CANCEL)) {
 		/* this request process in media scanner */
-		if ((err = __ms_add_owner(pid, client_sock)) != MS_MEDIA_ERR_NONE) {
+		if ((err = __ms_add_owner(pid, client_sock, send_msg->msg)) != MS_MEDIA_ERR_NONE) {
 			MS_DBG_ERR("__ms_add_owner failed. %d", err);
 			res = err;
 		}
@@ -369,7 +409,7 @@ int ms_send_scan_request(ms_comm_msg_s *send_msg, int client_sock)
 	return res;
 }
 
-int ms_send_storage_scan_request(char *root_path, ms_dir_scan_type_t scan_type)
+int ms_send_storage_scan_request(const char *root_path, const char *storage_id, ms_dir_scan_type_t scan_type)
 {
 	int ret = MS_MEDIA_ERR_NONE;
 	ms_comm_msg_s scan_msg = {
@@ -405,6 +445,10 @@ int ms_send_storage_scan_request(char *root_path, ms_dir_scan_type_t scan_type)
 	if (root_path != NULL) {
 		scan_msg.msg_size = strlen(root_path);
 		strncpy(scan_msg.msg, root_path, scan_msg.msg_size );
+	}
+
+	if (storage_id != NULL) {
+		strncpy(scan_msg.storage_id, storage_id, MS_UUID_SIZE-1);
 	}
 
 	ret = ms_send_scan_request(&scan_msg, -1);
@@ -457,7 +501,7 @@ gboolean ms_read_db_tcp_socket(GIOChannel *src, GIOCondition condition, gpointer
 	}
 
 	if (privilege == TRUE) {
-		ret = __ms_privilege_ask(client_sock);
+		ret = ms_privilege_ask(client_sock);
 		if (ret == MS_MEDIA_ERR_PERMISSION_DENIED) {
 			send_msg = MS_MEDIA_ERR_PERMISSION_DENIED;
 			goto ERROR;
@@ -473,7 +517,7 @@ gboolean ms_read_db_tcp_socket(GIOChannel *src, GIOCondition condition, gpointer
 		send_msg = ret;
 		MS_SAFE_FREE(sql_query);
 	} else {
-		send_msg = MS_MEDIA_ERR_ALLOCATE_MEMORY_FAIL;
+		send_msg = MS_MEDIA_ERR_OUT_OF_MEMORY;
 	}
 
 ERROR:
@@ -503,7 +547,7 @@ void _ms_process_tcp_message(gpointer data,  gpointer user_data)
 	memset((void *)&recv_msg, 0, sizeof(ms_comm_msg_s));
 
 	/* Connect Media DB*/
-	if(media_db_connect(&db_handle) != MS_MEDIA_ERR_NONE) {
+	if(media_db_connect(0, &db_handle, TRUE) != MS_MEDIA_ERR_NONE) {
 		MS_DBG_ERR("Failed to connect DB");
 		send_msg = MS_MEDIA_ERR_DB_CONNECT_FAIL;
 		goto ERROR;
@@ -573,7 +617,7 @@ void _ms_process_tcp_message(gpointer data,  gpointer user_data)
 	/* Disconnect DB*/
 	media_db_disconnect(db_handle);
 	MS_DBG_ERR("END");
-	if (g_atomic_int_dec_and_test(&cur_running_task) == FALSE) 
+	if (g_atomic_int_dec_and_test(&cur_running_task) == FALSE)
 		MS_DBG_ERR("g_atomic_int_dec_and_test failed");
 
 	return;
@@ -594,7 +638,7 @@ ERROR:
 	/* Disconnect DB*/
 	media_db_disconnect(db_handle);
 	MS_DBG_ERR("END");
-	if (g_atomic_int_dec_and_test(&cur_running_task) == FALSE) 
+	if (g_atomic_int_dec_and_test(&cur_running_task) == FALSE)
 		MS_DBG_ERR("g_atomic_int_dec_and_test failed");
 
 	return;
@@ -630,7 +674,7 @@ gboolean ms_read_db_tcp_batch_socket(GIOChannel *src, GIOCondition condition, gp
 		MS_DBG_SLOG("Create New Thread Pool %d", client_sock);
 		gtp = g_thread_pool_new((GFunc)_ms_process_tcp_message, NULL, MAX_THREAD_NUM, TRUE, &error);
 		if (error != NULL) {
-			res = MS_MEDIA_ERR_ALLOCATE_MEMORY_FAIL;
+			res = MS_MEDIA_ERR_OUT_OF_MEMORY;
 			goto ERROR;
 		}
 	}
@@ -720,4 +764,77 @@ gboolean ms_receive_message_from_scanner(GIOChannel *src, GIOCondition condition
 
 	return TRUE;
 }
+
+int ms_remove_request_owner(int pid, const char *req_path)
+{
+	ms_req_owner_data *owner_data = NULL;
+
+	__ms_find_owner(pid, req_path, &owner_data);
+	if (owner_data != NULL) {
+		MS_DBG("PID : %d", owner_data->pid);
+
+		close(owner_data->client_sockfd);
+		/* free owner data*/
+		__ms_delete_owner(owner_data);
+	} else {
+		MS_DBG_ERR("Not found Owner");
+		return MS_MEDIA_ERR_INTERNAL;
+	}
+
+	return MS_MEDIA_ERR_NONE;
+}
+
+int ms_send_storage_otg_scan_request(const char *path, const char *device_uuid, ms_dir_scan_type_t scan_type)
+{
+	int ret = MS_MEDIA_ERR_NONE;
+
+	if (path == NULL) {
+		MS_DBG_ERR("Invalid path");
+		return MS_MEDIA_ERR_INVALID_PARAMETER;
+	}
+
+	if (device_uuid == NULL) {
+		MS_DBG_ERR("Invalid device_uuid");
+		return MS_MEDIA_ERR_INVALID_PARAMETER;
+	}
+
+	ms_comm_msg_s scan_msg = {
+		.msg_type = MS_MSG_STORAGE_INVALID,
+		.pid = 0, /* pid 0 means media-server */
+		.result = -1,
+		.msg_size = 0,
+		.storage_id = {0},
+		.msg = {0},
+	};
+
+	/* msg_type */
+	switch (scan_type) {
+		case MS_SCAN_PART:
+			scan_msg.msg_type = MS_MSG_STORAGE_PARTIAL;
+			break;
+		case MS_SCAN_ALL:
+			scan_msg.msg_type = MS_MSG_STORAGE_ALL;
+			break;
+		case MS_SCAN_INVALID:
+			scan_msg.msg_type = MS_MSG_STORAGE_INVALID;
+			break;
+		default :
+			ret = MS_MEDIA_ERR_INVALID_PARAMETER;
+			MS_DBG_ERR("ms_send_storage_scan_request invalid parameter");
+			goto ERROR;
+			break;
+	}
+
+	/* msg_size & msg */
+	scan_msg.msg_size = strlen(path);
+	strncpy(scan_msg.msg, path, scan_msg.msg_size );
+	strncpy(scan_msg.storage_id, device_uuid, MS_UUID_SIZE-1);
+
+	ret = ms_send_scan_request(&scan_msg, -1);
+
+ERROR:
+
+	return ret;
+}
+
 

@@ -19,14 +19,6 @@
  *
  */
 
-/**
- * This file defines api utilities of contents manager engines.
- *
- * @file		media-server-thumb.c
- * @author	Yong Yeon Kim(yy9875.kim@samsung.com)
- * @version	1.0
- * @brief
- */
 #include <arpa/inet.h>
 #include <sys/types.h>
 #include <sys/stat.h>
@@ -40,13 +32,10 @@
 #include "media-server-ipc.h"
 #include "media-common-types.h"
 #include "media-common-utils.h"
+#include "media-common-db-svc.h"
 #include "media-scanner-dbg.h"
-#include "media-scanner-db-svc.h"
 #include "media-scanner-socket.h"
-
-extern GAsyncQueue *storage_queue;
-extern GAsyncQueue *scan_queue;
-extern GAsyncQueue *reg_queue;
+#include "media-scanner-scan.h"
 
 gboolean msc_receive_request(GIOChannel *src, GIOCondition condition, gpointer data)
 {
@@ -57,25 +46,25 @@ gboolean msc_receive_request(GIOChannel *src, GIOCondition condition, gpointer d
 
 	sockfd = g_io_channel_unix_get_fd(src);
 	if (sockfd < 0) {
-		MSC_DBG_ERR("sock fd is invalid!");
+		MS_DBG_ERR("sock fd is invalid!");
 		return TRUE;
 	}
 
 	MS_MALLOC(recv_msg, sizeof(ms_comm_msg_s));
 	if (recv_msg == NULL) {
-		MSC_DBG_ERR("MS_MALLOC failed");
+		MS_DBG_ERR("MS_MALLOC failed");
 		return TRUE;
 	}
 
 	/* read() is blocked until media scanner sends message */
 	err = read(sockfd, recv_msg, sizeof(ms_comm_msg_s));
 	if (err < 0) {
-		MSC_DBG_STRERROR("fifo read failed");
+		MS_DBG_STRERROR("fifo read failed");
 		MS_SAFE_FREE(recv_msg);
 		return MS_MEDIA_ERR_FILE_READ_FAIL;
 	}
 
-	MSC_DBG_SLOG("receive msg from [%d] %d, %s", recv_msg->pid, recv_msg->msg_type, recv_msg->msg);
+	MS_DBG_SLOG("receive msg from [%d] %d, %s", recv_msg->pid, recv_msg->msg_type, recv_msg->msg);
 
 	/* copy from recived data */
 	req_num = recv_msg->msg_type;
@@ -84,9 +73,9 @@ gboolean msc_receive_request(GIOChannel *src, GIOCondition condition, gpointer d
 		case MS_MSG_BULK_INSERT:
 		case MS_MSG_BURSTSHOT_INSERT:
 			{
-				MSC_DBG_INFO("BULK INSERT");
+				MS_DBG_INFO("BULK INSERT");
 				/* request bulk insert*/
-				g_async_queue_push(reg_queue, GINT_TO_POINTER(recv_msg));
+				msc_push_scan_request(MS_SCAN_REGISTER, recv_msg);
 			}
 			break;
 		case MS_MSG_DIRECTORY_SCANNING:
@@ -94,7 +83,7 @@ gboolean msc_receive_request(GIOChannel *src, GIOCondition condition, gpointer d
 			{
 				/* this request from another apps */
 				/* set the scan data for scanning thread */
-				g_async_queue_push(scan_queue, GINT_TO_POINTER(recv_msg));
+				msc_push_scan_request(MS_SCAN_DIRECTORY, recv_msg);
 			}
 			break;
 		case MS_MSG_STORAGE_ALL:
@@ -102,7 +91,13 @@ gboolean msc_receive_request(GIOChannel *src, GIOCondition condition, gpointer d
 		case MS_MSG_STORAGE_INVALID:
 			{
 				/* this request from media-server */
-				g_async_queue_push(storage_queue, GINT_TO_POINTER(recv_msg));
+				msc_push_scan_request(MS_SCAN_STORAGE, recv_msg);
+			}
+			break;
+		case MS_MSG_DIRECTORY_SCANNING_CANCEL:
+			{
+				msc_remove_dir_scan_request(recv_msg);
+				MS_SAFE_FREE(recv_msg);
 			}
 			break;
 		case MS_MSG_STORAGE_META:
@@ -110,7 +105,7 @@ gboolean msc_receive_request(GIOChannel *src, GIOCondition condition, gpointer d
 			break;
 		default:
 			{
-				MSC_DBG_ERR("THIS REQUEST IS INVALID %d", req_num);
+				MS_DBG_ERR("THIS REQUEST IS INVALID %d", req_num);
 				MS_SAFE_FREE(recv_msg);
 			}
 			break;
@@ -131,7 +126,7 @@ int msc_send_ready(void)
 
 	fd = open(MS_SCANNER_FIFO_PATH_RES, O_WRONLY);
 	if (fd < 0) {
-		MSC_DBG_STRERROR("fifo open failed");
+		MS_DBG_STRERROR("fifo open failed");
 		return MS_MEDIA_ERR_FILE_OPEN_FAIL;
 	}
 
@@ -142,7 +137,7 @@ int msc_send_ready(void)
 	/* send ready message */
 	err = write(fd, &send_msg, sizeof(send_msg));
 	if (err < 0) {
-		MSC_DBG_STRERROR("fifo write failed");
+		MS_DBG_STRERROR("fifo write failed");
 		res = MS_MEDIA_ERR_FILE_READ_FAIL;
 	}
 
@@ -160,7 +155,7 @@ int msc_send_result(int result, ms_comm_msg_s *res_data)
 
 	fd = open(MS_SCANNER_FIFO_PATH_RES, O_WRONLY);
 	if (fd < 0) {
-		MSC_DBG_STRERROR("fifo open failed");
+		MS_DBG_STRERROR("fifo open failed");
 		return MS_MEDIA_ERR_FILE_OPEN_FAIL;
 	}
 
@@ -175,7 +170,7 @@ int msc_send_result(int result, ms_comm_msg_s *res_data)
 	/* send ready message */
 	err = write(fd, &send_msg, sizeof(send_msg));
 	if (err < 0) {
-		MSC_DBG_STRERROR("fifo write failed");
+		MS_DBG_STRERROR("fifo write failed");
 		res = MS_MEDIA_ERR_FILE_READ_FAIL;
 	}
 

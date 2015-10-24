@@ -19,15 +19,6 @@
  *
  */
 
-/**
- * This file defines api utilities of contents manager engines.
- *
- * @file		media-server-dbg.h
- * @author	Yong Yeon Kim(yy9875.kim@samsung.com)
- * @version	1.0
- * @brief
- */
-
 #ifndef _MEDIA_SERVER_DBG_H_
 #define _MEDIA_SERVER_DBG_H_
 
@@ -35,36 +26,12 @@
 #include <dlog.h>
 #include <errno.h>
 
+#include "media-common-dbg.h"
+
 #ifdef LOG_TAG
 #undef LOG_TAG
 #endif
+
 #define LOG_TAG "MEDIA_SERVER"
-#define BUF_LENGTH 256
-
-#define MS_DBG_STRERROR(fmt) do { \
-			char buf[BUF_LENGTH] = {0,}; \
-			strerror_r(errno, buf, BUF_LENGTH); \
-			LOGE(fmt" : STANDARD ERROR [%s]", buf);	 \
-		} while (0)
-
-#define MS_DBG_SLOG(fmt, args...) do{ if (true) { \
-		SECURE_LOGD(fmt "\n" , ##args); \
-		}} while(false)
-
-#define MS_DBG(fmt, args...) do{ if (true) { \
-		LOGD(fmt "\n" , ##args); \
-		}} while(false)
-
-#define MS_DBG_INFO(fmt, args...) do{ if (true) { \
-		LOGI(fmt "\n" , ##args); \
-		}} while(false)
-
-#define MS_DBG_WARN(fmt, args...) do{ if (true) { \
-		LOGW(fmt "\n", ##args); \
-		}} while(false)
-
-#define MS_DBG_ERR(fmt, args...) do{ if (true) { \
-		LOGE(fmt "\n", ##args); \
-		}} while(false)
 
 #endif /*_MEDIA_SERVER_DBG_H_*/

@@ -26,16 +26,19 @@
 #include <media-util-register.h>
 #include <media-util-db.h>
 #include <media-util-noti.h>
+#include <media-util-noti-internal.h>
 #include <media-util-ipc.h>
 
 #define MOUNT_PATH "/opt/usr"
 #define STORAGE_PATH "/opt/storage"
 
 #define MEDIA_ROOT_PATH_INTERNAL	MOUNT_PATH"/media"
+#define MEDIA_ROOT_PATH_EXTERNAL	STORAGE_PATH
 #define MEDIA_ROOT_PATH_SDCARD	STORAGE_PATH"/sdcard"
-
+#define MEDIA_ROOT_PATH_USB		STORAGE_PATH
+#define MEDIA_ROOT_PATH_CLOUD	STORAGE_PATH"/tnfs/cloud"
 #define MEDIA_THUMB_ROOT_PATH		MOUNT_PATH"/share/media"
 #define MEDIA_DB_NAME				MOUNT_PATH"/dbspace/.media.db"		/**<  media db name*/
-#define MEDIA_DATA_PATH			MOUNT_PATH"/data/file-manager-service"
+#define MEDIA_DATA_PATH			MOUNT_PATH"/apps/media-server/data"
 
 #endif /*_MEDIA_UTIL_H_*/

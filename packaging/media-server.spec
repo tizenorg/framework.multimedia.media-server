@@ -1,13 +1,11 @@
 Name:       media-server
 Summary:    File manager service server.
-Version: 0.2.89
+Version: 0.2.122
 Release:    1
 Group:      utils
 License:    Apache-2.0
 Source0:    %{name}-%{version}.tar.gz
-Source1:    media-server.service.wearable
-Source2:    media-scanner.service.wearable
-Source3:    media-server.service.mobile
+Source1:    media-server.service
 
 Requires(post): /usr/bin/vconftool
 Requires: deviced
@@ -16,12 +14,14 @@ BuildRequires:  pkgconfig(glib-2.0)
 BuildRequires:  pkgconfig(vconf)
 BuildRequires:  pkgconfig(dlog)
 BuildRequires:  pkgconfig(dbus-glib-1)
+BuildRequires:  pkgconfig(gio-2.0)
 BuildRequires:  pkgconfig(sqlite3)
 BuildRequires:  pkgconfig(db-util)
 BuildRequires:  pkgconfig(deviced)
 BuildRequires:  pkgconfig(security-server)
 BuildRequires:  pkgconfig(notification)
-
+BuildRequires:  pkgconfig(iniparser)
+BuildRequires:  pkgconfig(libsmack)
 
 %description
 Description: File manager service server
@@ -46,7 +46,9 @@ Description: media server development library.
 %setup -q
 
 %build
-
+export CFLAGS+=" -Wextra -Wno-array-bounds"
+export CFLAGS+=" -Wno-ignored-qualifiers -Wno-unused-parameter"
+export CFLAGS+=" -Wwrite-strings -Wswitch-default -Werror"
 export GC_SECTIONS_FLAGS="-fdata-sections -ffunction-sections -Wl,--gc-sections"
 export CFLAGS+=" ${GC_SECTIONS_FLAGS}"
 export CXXFLAGS+=" ${GC_SECTIONS_FLAGS}"
@@ -70,9 +72,6 @@ mkdir -p %{buildroot}/usr/lib/systemd/system/multi-user.target.wants
 install -m 644 %{SOURCE1} %{buildroot}/usr/lib/systemd/system/media-server.service
 ln -s ../media-server.service %{buildroot}/usr/lib/systemd/system/multi-user.target.wants/media-server.service
 
-install -m 644 %{SOURCE2} %{buildroot}/usr/lib/systemd/system/media-scanner.service
-#ln -s ../media-scanner.service %{buildroot}/usr/lib/systemd/system/multi-user.target.wants/media-scanner.service
-
 mkdir -p %{buildroot}/usr/etc
 cp -rf %{_builddir}/%{name}-%{version}/media-server-plugin %{buildroot}/usr/etc/media-server-plugin
 
@@ -81,22 +80,24 @@ mkdir -p %{buildroot}/%{_datadir}/license
 cp -rf %{_builddir}/%{name}-%{version}/LICENSE.APLv2.0 %{buildroot}/%{_datadir}/license/%{name}
 cp -rf %{_builddir}/%{name}-%{version}/LICENSE.APLv2.0 %{buildroot}/%{_datadir}/license/libmedia-utils
 
+#ini file
+mkdir -p %{buildroot}/opt/etc
+cp -rf %{_builddir}/%{name}-%{version}/media_content_config.ini %{buildroot}/usr/etc
+
 %post
-vconftool set -t int db/filemanager/dbupdate "1" -f -s system::vconf_inhouse
-vconftool set -t int memory/filemanager/Mmc "0" -i -f -s system::vconf_inhouse
-vconftool set -t string db/private/mediaserver/mmc_info "" -f -s media-server::vconf
+
 
 %files
 %manifest media-server.manifest
 %defattr(-,root,root,-)
 %{_bindir}/media-server
 %{_bindir}/media-scanner
+%{_bindir}/media-scanner-v2
 %{_bindir}/mediadb-update
 /usr/lib/systemd/system/media-server.service
 /usr/lib/systemd/system/multi-user.target.wants/media-server.service
-/usr/lib/systemd/system/media-scanner.service
-#/usr/lib/systemd/system/multi-user.target.wants/media-scanner.service
 /usr/etc/media-server-plugin
+/usr/etc/media_content_config.ini
 #License
 %{_datadir}/license/%{name}
 %{_datadir}/license/libmedia-utils

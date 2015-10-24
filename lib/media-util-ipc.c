@@ -19,15 +19,6 @@
  *
  */
 
-/**
- * This file defines api utilities of IPC.
- *
- * @file		media-util-ipc.c
- * @author	Haejeong Kim(backto.kim@samsung.com)
- * @version	1.0
- * @brief
- */
-
 #include <string.h>
 #include <unistd.h>
 #include <errno.h>
@@ -35,6 +26,7 @@
 
 #include "media-util-dbg.h"
 #include "media-util.h"
+#include "media-util-internal.h"
 
 char MEDIA_IPC_PATH[][50] ={
 	{"/tmp/.media_ipc_dbbatchupdate"},
@@ -49,6 +41,7 @@ char MEDIA_IPC_PATH[][50] ={
 #define MS_SOCK_PATH_PRFX "/tmp/.media_ipc_client"
 #define MS_SOCK_PATH_TEMPLATE "XXXXXX"
 #define MS_SOCK_PATH MS_SOCK_PATH_PRFX MS_SOCK_PATH_TEMPLATE
+#define MS_SOCK_UDP_BLOCK_SIZE 512
 
 static const char abc[] =
  "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
@@ -208,7 +201,7 @@ int ms_ipc_create_server_socket(ms_protocol_e protocol, ms_msg_port_type_e port,
 	strncpy(serv_addr.sun_path, MEDIA_IPC_PATH[serv_port], strlen(MEDIA_IPC_PATH[serv_port]));
 
 	/* Bind to the local address */
-	for (i = 0; i < 20; i ++) {
+	for (i = 0; i < 100; i ++) {
 		if (bind(sock, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) == 0) {
 			bind_success = true;
 			break;
@@ -237,13 +230,11 @@ int ms_ipc_create_server_socket(ms_protocol_e protocol, ms_msg_port_type_e port,
 	}
 
 	/*change permission of sock file*/
-	if (chmod(MEDIA_IPC_PATH[serv_port], 0660) < 0) {
+	if (chmod(MEDIA_IPC_PATH[serv_port], 0660) < 0)
 		MSAPI_DBG_STRERROR("chmod failed");
-	}
-
-	if (chown(MEDIA_IPC_PATH[serv_port], 0, 5000) < 0) {
+	if (chown(MEDIA_IPC_PATH[serv_port], 200, 5000) < 0)
 		MSAPI_DBG_STRERROR("chown failed");
-	}
+
 	*sock_fd = sock;
 
 	return MS_MEDIA_ERR_NONE;
@@ -267,7 +258,7 @@ int ms_ipc_send_msg_to_server(int sockfd, ms_msg_port_type_e port, ms_comm_msg_s
 		MSAPI_DBG("sent result [%d]", send_msg->result);
 		MSAPI_DBG_SLOG("result message [%s]", send_msg->msg);
 		if (serv_addr != NULL)
-	*serv_addr = addr;
+			*serv_addr = addr;
 	}
 
 	return res;
@@ -289,7 +280,13 @@ int ms_ipc_send_msg_to_server_tcp(int sockfd, ms_msg_port_type_e port, ms_comm_m
 	if (connect(sockfd, (struct sockaddr*)&addr, sizeof(addr)) < 0) {
 		MSAPI_DBG_STRERROR("connect error");
 		close(sockfd);
-		return MS_MEDIA_ERR_SOCKET_CONN;
+
+		res = MS_MEDIA_ERR_SOCKET_CONN;
+
+		if (errno == EACCES || errno == EPERM)
+			res = MS_MEDIA_ERR_PERMISSION_DENIED;
+
+		return res;
 	}
 
 	if (write(sockfd, send_msg, sizeof(*(send_msg))) != sizeof(*(send_msg))) {
@@ -382,6 +379,56 @@ int ms_ipc_wait_message(int sockfd, void *recv_msg, unsigned int msg_size, struc
 
 	if (addr_size != NULL)
 		*addr_size  = addr_len;
+
+	return MS_MEDIA_ERR_NONE;
+}
+
+int ms_ipc_wait_block_message(int sockfd, void *recv_msg, unsigned int msg_size, struct sockaddr_un *recv_addr, unsigned int *addr_size)
+{
+	int recv_msg_size;
+	socklen_t addr_len;
+	unsigned char *block_buf;
+	int block_size = 0;
+	int recv_size = 0;
+	unsigned int remain_size = msg_size;
+
+	if (!recv_msg ||!recv_addr)
+		return MS_MEDIA_ERR_INVALID_PARAMETER;
+
+	addr_len = sizeof(struct sockaddr_un);
+	block_size = MS_SOCK_UDP_BLOCK_SIZE;
+	block_buf = malloc(block_size * sizeof(unsigned char));
+	if(block_buf == NULL) {
+		MSAPI_DBG_ERR("malloc failed.");
+		return MS_MEDIA_ERR_OUT_OF_MEMORY;
+	}
+	memset(block_buf, 0, block_size * sizeof(unsigned char));
+
+	while(remain_size > 0) {
+		if(remain_size < MS_SOCK_UDP_BLOCK_SIZE) {
+			block_size = remain_size;
+		}
+		if ((recv_msg_size = recvfrom(sockfd, block_buf, block_size, 0, (struct sockaddr *)recv_addr, &addr_len)) < 0) {
+			MSAPI_DBG_STRERROR("recvfrom failed");
+			if (errno == EWOULDBLOCK) {
+				MSAPI_DBG_ERR("recvfrom Timeout.");
+				MS_SAFE_FREE(block_buf);
+				return MS_MEDIA_ERR_SOCKET_RECEIVE_TIMEOUT;
+			} else {
+				MSAPI_DBG_STRERROR("recvfrom error");
+				MS_SAFE_FREE(block_buf);
+				return MS_MEDIA_ERR_SOCKET_RECEIVE;
+			}
+		}
+
+		memcpy(recv_msg+recv_size, block_buf, block_size);
+		recv_size += block_size;
+		remain_size -= block_size;
+	}
+	if (addr_size != NULL)
+		*addr_size  = addr_len;
+
+	MS_SAFE_FREE(block_buf);
 
 	return MS_MEDIA_ERR_NONE;
 }

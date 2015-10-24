@@ -5,16 +5,28 @@
 			<label name="media-server::vconf"/>
 		</provide>
 		<request>
+                        <smack request="system::homedir" type="rwxat"/>
 			<smack request="system::media" type="rwxat"/>
 			<smack request="system::media::root" type="rwxat"/>
 			<smack request="system::ext_storage" type="rwxat"/>
-			<smack request="system::vconf" type="rwxat"/>
-			<smack request="system::vconf_system" type="r"/>
+			<smack request="device::app_logging" type="w"/>
+                        <smack request="device::sys_logging" type="w"/>
 			<smack request="deviced" type="rwx"/>
 			<smack request="deviced::display" type="rw"/>
-			<smack request="security-server::api-privilege-by-pid" type="w"/>
+			<smack request="deviced::block" type="rw"/>
 			<smack request="aul::lunch" type="x"/>
+			<smack request="security-server::api-privilege-by-pid" type="w"/>
+			<smack request="media-data::db" type="rw"/>
+			<smack request="tizen::vconf::platform::rw" type="rw"/>
+			<smack request="tizen::vconf::platform::r" type="rw"/>
+			<smack request="tizen::vconf::public::r" type="rw"/>
+			<smack request="tizen::vconf::setting::admin" type="rl"/>
+			<smack request="tizen::vconf::camcorder" type="rl"/>
+			<smack request="xorg" type="rwx"/>
 		</request>
+		<permit>
+			<smack permit="xorg" type="rwx"/>
+		</permit>
 	</define>
 	<request>
 		<domain name="_"/>
@@ -22,6 +34,7 @@
 	<assign>
 		<filesystem path="/usr/bin/media-server" label="media-server" exec_label="media-server" />
 		<filesystem path="/usr/bin/media-scanner" label="media-server" exec_label="media-server" />
+		<filesystem path="/usr/bin/media-scanner-v2" label="media-server" exec_label="media-server" />
 		<filesystem path="/usr/bin/mediadb-update" label="media-server" exec_label="media-server" />
 	</assign>
 </manifest>

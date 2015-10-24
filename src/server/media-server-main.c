@@ -19,15 +19,6 @@
  *
  */
 
-/**
- * This file defines api utilities of contents manager engines.
- *
- * @file		media-server-main.c
- * @author	Yong Yeon Kim(yy9875.kim@samsung.com)
- * @version	1.0
- * @brief
- */
-
 #include <sys/wait.h>
 #include <sys/types.h>
 #include <dirent.h>
@@ -38,16 +29,17 @@
 #include "media-util.h"
 #include "media-common-utils.h"
 #include "media-common-external-storage.h"
+#include "media-common-db-svc.h"
+#include "media-common-system.h"
+
 #include "media-server-dbg.h"
-#include "media-server-db-svc.h"
 #include "media-server-socket.h"
 #include "media-server-db.h"
 #include "media-server-thumb.h"
 #include "media-server-scanner.h"
+#include "media-server-device-block.h"
 
-#define APP_NAME "media-server"
-
-extern GMutex *scanner_mutex;
+extern GMutex scanner_mutex;
 
 GMainLoop *mainloop = NULL;
 bool power_off; /*If this is TRUE, poweroff notification received*/
@@ -58,65 +50,12 @@ static void __ms_remove_event_receiver(void);
 static void __ms_add_event_receiver(GIOChannel *channel);
 static void __ms_remove_requst_receiver(GIOChannel *channel);
 static void __ms_add_requst_receiver(GMainLoop *mainloop, GIOChannel **channel);
+static int __ms_check_mmc_status(void);
+static int __ms_check_usb_status(void);
 
 static char *priv_lang = NULL;
 
-bool check_process()
-{
-	DIR *pdir;
-	struct dirent pinfo;
-	struct dirent *result = NULL;
-	bool ret = false;
-	int find_pid = 0;
-	pid_t current_pid = 0;
-
-	current_pid = getpid();
-
-	pdir = opendir("/proc");
-	if (pdir == NULL) {
-		MS_DBG_ERR("err: NO_DIR");
-		return 0;
-	}
-
-	while (!readdir_r(pdir, &pinfo, &result)) {
-		if (result == NULL)
-			break;
-
-		if (pinfo.d_type != 4 || pinfo.d_name[0] == '.'
-		    || pinfo.d_name[0] > 57)
-			continue;
-
-		FILE *fp;
-		char buff[128];
-		char path[128];
-
-		ms_strcopy(path, sizeof(path), "/proc/%s/status", pinfo.d_name);
-		fp = fopen(path, "rt");
-		if (fp) {
-			if (fgets(buff, 128, fp) == NULL)
-				MS_DBG_ERR("fgets failed");
-			fclose(fp);
-
-			if (strstr(buff, APP_NAME)) {
-				find_pid = atoi(pinfo.d_name);
-				if (find_pid == current_pid)
-					ret = true;
-				else {
-					ret = false;
-					break;
-				}
-			}
-		} else {
-			MS_DBG_ERR("Can't read file [%s]", path);
-		}
-	}
-
-	closedir(pdir);
-
-	return ret;
-}
-
-void _power_off_cb(void* data)
+void _power_off_cb(ms_power_info_s *power_info, void* data)
 {
 	MS_DBG_ERR("POWER OFF");
 
@@ -143,7 +82,7 @@ void _power_off_cb(void* data)
 	return;
 }
 
-static void _db_clear(void)
+static void __db_clear(bool *need_full_scan)
 {
 	int err = MS_MEDIA_ERR_NONE;
 	void **handle = NULL;
@@ -160,13 +99,18 @@ static void _db_clear(void)
 
 	/* check schema of db is chaged and need upgrade */
 	MS_DBG_WARN("Check DB upgrade start");
-	if (ms_check_db_upgrade(handle)  != MS_MEDIA_ERR_NONE)
+	if (ms_check_db_upgrade(handle, need_full_scan)  != MS_MEDIA_ERR_NONE)
 		MS_DBG_ERR("ms_check_db_upgrade fail");
 	MS_DBG_WARN("Check DB upgrade end");
 
+	/*update just sd card item's valid type*/
+	if (ms_validaty_change_all_items(handle, MMC_STORAGE_ID, MS_STORAGE_EXTERNAL, 0)  != MS_MEDIA_ERR_NONE)
+		MS_DBG_ERR("ms_validaty_change_all_items fail");
+
 	/*update just valid type*/
-	if (ms_invalidate_all_items(handle, MS_STORAGE_EXTERNAL)  != MS_MEDIA_ERR_NONE)
-		MS_DBG_ERR("ms_change_valid_type fail");
+	if (ms_set_all_storage_validity(handle, 0)  != MS_MEDIA_ERR_NONE) {
+		MS_DBG_ERR("ms_set_all_storage_validity fail");
+	}
 
 	/*disconnect form media db*/
 	if (handle) ms_disconnect_db(&handle);
@@ -194,127 +138,72 @@ void _ms_signal_handler(int n)
 		} else {
 			MS_DBG_ERR("[%d] is stopped", pid);
 		}
-/*
-		if (WIFEXITED(stat)) {
-			MS_DBG_ERR("normal termination , exit status : %d", WEXITSTATUS(stat));
-		} else if (WIFSIGNALED(stat)) {
-			MS_DBG_ERR("abnormal termination , signal number : %d", WTERMSIG(stat));
-		} else if (WIFSTOPPED(stat)) {
-			MS_DBG_ERR("child process is stoped, signal number : %d", WSTOPSIG(stat));
-		}
-*/
 	}
 
 	return;
 }
 
-static void _ms_new_global_variable(void)
+static void __ms_new_global_variable(void)
 {
 	/*Init mutex variable*/
 	/*media scanner stop/start mutex*/
-	if (!scanner_mutex) scanner_mutex = g_mutex_new();
+	g_mutex_init(&scanner_mutex);
 }
 
-static void _ms_free_global_variable(void)
+static void __ms_free_global_variable(void)
 {
 	/*Clear mutex variable*/
-	if (scanner_mutex) g_mutex_free(scanner_mutex);
+	g_mutex_clear(&scanner_mutex);
 }
 
-void
-_ms_mmc_vconf_cb(keynode_t *key, void* data)
+void _ms_change_lang_vconf_cb(keynode_t *key, void* data)
 {
-	int status = 0;
-
-	if (!ms_config_get_int(VCONFKEY_SYSMAN_MMC_STATUS, &status)) {
-		MS_DBG_ERR("Get VCONFKEY_SYSMAN_MMC_STATUS failed.");
-	}
-
-	MS_DBG_ERR("CURRENT STATUS OF SD CARD[%d]", status);
-
-	/* If scanner is not working, media server executes media scanner and sends request. */
-	/* If scanner is working, it detects changing status of SD card. */
-	if (status == VCONFKEY_SYSMAN_MMC_REMOVED ||
-		status == VCONFKEY_SYSMAN_MMC_INSERTED_NOT_MOUNTED) {
-
-		/*remove added watch descriptors */
-		ms_present_mmc_status(MS_SDCARD_REMOVED);
-
-		ms_send_storage_scan_request(MEDIA_ROOT_PATH_SDCARD, MS_SCAN_INVALID);
-	} else if (status == VCONFKEY_SYSMAN_MMC_MOUNTED) {
-
-		ms_make_default_path_mmc();
-
-		ms_present_mmc_status(MS_SDCARD_INSERTED);
-
-		ms_send_storage_scan_request(MEDIA_ROOT_PATH_SDCARD, ms_get_mmc_state());
-	}
-
-	return;
-}
-
-void
-_ms_change_lang_vconf_cb(keynode_t *key, void* data)
-{
-	char lang[100] = {0, };
-	char *eng = "en";
-	char *chi = "zh";
-	char *jpn = "ja";
-	char *kor = "ko";
+	char *lang = NULL;
+	const char *eng = "en";
+	const char *chi = "zh";
+	const char *jpn = "ja";
+	const char *kor = "ko";
 	bool need_update = FALSE;
 
-	if (!ms_config_get_str(VCONFKEY_LANGSET, lang)) {
+	if (!ms_config_get_str(VCONFKEY_LANGSET, &lang)) {
 		MS_DBG_ERR("Get VCONFKEY_LANGSET failed.");
 		return;
 	}
 
 	MS_DBG("CURRENT LANGUAGE [%s] [%s]", priv_lang, lang);
 
-	if (strcmp(priv_lang, lang) == 0) {
-		need_update = FALSE;
-	} else if ((strncmp(lang, eng, strlen(eng)) == 0) ||
-			(strncmp(lang, chi, strlen(chi)) == 0) ||
-			(strncmp(lang, jpn, strlen(jpn)) == 0) ||
-			(strncmp(lang, kor, strlen(kor)) == 0)) {
-			need_update = TRUE;
-	} else {
-		if ((strncmp(priv_lang, eng, strlen(eng)) == 0) ||
-			(strncmp(priv_lang, chi, strlen(chi)) == 0) ||
-			(strncmp(priv_lang, jpn, strlen(jpn)) == 0) ||
-			(strncmp(priv_lang, kor, strlen(kor)) == 0)) {
-			need_update = TRUE;
+	if (MS_STRING_VALID(priv_lang) && MS_STRING_VALID(lang)) {
+		if (strcmp(priv_lang, lang) == 0) {
+			need_update = FALSE;
+		} else if ((strncmp(lang, eng, strlen(eng)) == 0) ||
+				(strncmp(lang, chi, strlen(chi)) == 0) ||
+				(strncmp(lang, jpn, strlen(jpn)) == 0) ||
+				(strncmp(lang, kor, strlen(kor)) == 0)) {
+				need_update = TRUE;
+		} else {
+			if ((strncmp(priv_lang, eng, strlen(eng)) == 0) ||
+				(strncmp(priv_lang, chi, strlen(chi)) == 0) ||
+				(strncmp(priv_lang, jpn, strlen(jpn)) == 0) ||
+				(strncmp(priv_lang, kor, strlen(kor)) == 0)) {
+				need_update = TRUE;
+			}
 		}
+	} else {
+		need_update = TRUE;
 	}
 
-	if (need_update) {
-		ms_send_storage_scan_request(NULL, MS_SCAN_META);
+	if (need_update == TRUE) {
+		ms_send_storage_scan_request(NULL, INTERNAL_STORAGE_ID, MS_SCAN_META);	/*FIX ME*/
 	} else {
 		MS_DBG_WARN("language is changed but do not update meta data");
 	}
 
 	MS_SAFE_FREE(priv_lang);
-	priv_lang = strdup(lang);
 
-	return;
-}
+	if (MS_STRING_VALID(lang))
+		priv_lang = strdup(lang);
 
-static void _ms_check_pw_status(void)
-{
-	int pw_status = 0;
-
-	if (!ms_config_get_int(VCONFKEY_SYSMAN_POWER_OFF_STATUS, &pw_status)) {
-		MS_DBG_ERR("Get VCONFKEY_SYSMAN_POWER_OFF_STATUS failed.");
-	}
-
-	if (pw_status == VCONFKEY_SYSMAN_POWER_OFF_DIRECT ||
-		pw_status == VCONFKEY_SYSMAN_POWER_OFF_RESTART) {
-		power_off = TRUE;
-
-		while(1) {
-			MS_DBG_WARN("wait power off");
-			sleep(3);
-		}
-	}
+	MS_SAFE_FREE(lang);
 
 	return;
 }
@@ -324,25 +213,13 @@ int main(int argc, char **argv)
 	GThread *db_thread = NULL;
 	GThread *thumb_thread = NULL;
 	GIOChannel *channel = NULL;
-	bool check_result = false;
 
 	power_off = FALSE;
-
-	_ms_check_pw_status();
-
-	check_result = check_process();
-	if (check_result == false) {
-		goto EXIT;
-	}
-
-	if (!g_thread_supported()) {
-		g_thread_init(NULL);
-	}
 
 	/*Init main loop*/
 	mainloop = g_main_loop_new(NULL, FALSE);
 
-	_ms_new_global_variable();
+	__ms_new_global_variable();
 
 	__ms_add_requst_receiver(mainloop, &channel);
 
@@ -367,6 +244,9 @@ int main(int argc, char **argv)
 	/*Active flush */
 	malloc_trim(0);
 
+	/*Read ini file */
+	ms_thumb_get_config();
+
 	MS_DBG_ERR("*** Media Server is running ***");
 
 	g_main_loop_run(mainloop);
@@ -374,11 +254,9 @@ int main(int argc, char **argv)
 	g_thread_join(db_thread);
 	g_thread_join(thumb_thread);
 
-	_ms_free_global_variable();
+	__ms_free_global_variable();
 
 	MS_DBG_ERR("*** Media Server is stopped ***");
-
-EXIT:
 
 	return 0;
 }
@@ -392,8 +270,7 @@ static void __ms_add_requst_receiver(GMainLoop *mainloop, GIOChannel **channel)
 
 	/*prepare socket*/
 	/* Create and bind new UDP socket */
-	if (ms_ipc_create_server_socket(MS_PROTOCOL_TCP, MS_SCANNER_PORT, &sockfd)
-		!= MS_MEDIA_ERR_NONE) {
+	if (ms_ipc_create_server_socket(MS_PROTOCOL_TCP, MS_SCANNER_PORT, &sockfd) != MS_MEDIA_ERR_NONE) {
 		MS_DBG_ERR("Failed to create socket");
 		return;
 	} else {
@@ -428,34 +305,36 @@ static void __ms_remove_requst_receiver(GIOChannel *channel)
 
 static void __ms_add_event_receiver(GIOChannel *channel)
 {
-	int err;
-	char lang[100] = {0,};
+	int err = 0;
+	char *lang = NULL;
 
 	/*set power off callback function*/
-	ms_add_poweoff_event_receiver(_power_off_cb,channel);
+	ms_sys_set_poweroff_cb(_power_off_cb,channel);
+	ms_sys_set_device_block_event_cb(ms_device_block_changed_cb, NULL);
 
-	/*add noti receiver for SD card event */
-	err = vconf_notify_key_changed(VCONFKEY_SYSMAN_MMC_STATUS, (vconf_callback_fn) _ms_mmc_vconf_cb, NULL);
-	if (err == -1)
-		MS_DBG_ERR("add call back function for event %s fails", VCONFKEY_SYSMAN_MMC_STATUS);
-
-	if (!ms_config_get_str(VCONFKEY_LANGSET, lang)) {
+	if (!ms_config_get_str(VCONFKEY_LANGSET, &lang)) {
 		MS_DBG_ERR("Get VCONFKEY_LANGSET failed.");
 		return;
 	}
 
-	priv_lang = strdup(lang);
+	if (MS_STRING_VALID(lang)) {
+		MS_DBG("Set language change cb [%s]", lang);
 
-	err = vconf_notify_key_changed(VCONFKEY_LANGSET, (vconf_callback_fn) _ms_change_lang_vconf_cb, NULL);
-	if (err == -1)
-		MS_DBG_ERR("add call back function for event %s fails", VCONFKEY_LANGSET);
+		priv_lang = strdup(lang);
+		MS_SAFE_FREE(lang);
 
+		err = vconf_notify_key_changed(VCONFKEY_LANGSET, (vconf_callback_fn) _ms_change_lang_vconf_cb, NULL);
+		if (err == -1)
+			MS_DBG_ERR("add call back function for event %s fails", VCONFKEY_LANGSET);
+	}
+
+	return;
 }
 
 static void __ms_remove_event_receiver(void)
 {
-	vconf_ignore_key_changed(VCONFKEY_SYSMAN_MMC_STATUS,
-				 (vconf_callback_fn) _ms_mmc_vconf_cb);
+	ms_sys_unset_device_block_event_cb();
+	ms_sys_unset_poweroff_cb();
 }
 
 static void __ms_add_signal_handler(void)
@@ -470,23 +349,88 @@ static void __ms_add_signal_handler(void)
 
 	if (sigaction(SIGCHLD, &sigset, NULL) < 0) {
 		MS_DBG_STRERROR("sigaction failed");
-	} 
+	}
 
 	signal(SIGPIPE,SIG_IGN);
 }
+
 static void __ms_check_mediadb(void)
 {
-	_db_clear();
+	bool need_full_scan = false;
+
+	__db_clear(&need_full_scan);
 
 	/* update internal storage */
-	ms_send_storage_scan_request(MEDIA_ROOT_PATH_INTERNAL, MS_SCAN_PART);
-
-	/* update external storage */
-	if (ms_is_mmc_inserted()) {
-		ms_make_default_path_mmc();
-		ms_present_mmc_status(MS_SDCARD_INSERTED);
-
-		ms_send_storage_scan_request(MEDIA_ROOT_PATH_SDCARD, ms_get_mmc_state());
+	if(need_full_scan) {
+		ms_send_storage_scan_request(MEDIA_ROOT_PATH_INTERNAL, INTERNAL_STORAGE_ID, MS_SCAN_ALL);
+	} else {
+		ms_send_storage_scan_request(MEDIA_ROOT_PATH_INTERNAL, INTERNAL_STORAGE_ID, MS_SCAN_PART);
 	}
+	/* update external storage */
+	__ms_check_mmc_status();
+	__ms_check_usb_status();
+}
+
+
+////////////////////////////////////////////////////////////////////
+static int __ms_check_mmc_status(void)
+{
+	int ret = MS_MEDIA_ERR_NONE;
+	ms_stg_type_e stg_type = MS_STG_TYPE_MMC;
+	GArray *dev_list = NULL;
+
+	ret = ms_sys_get_device_list(stg_type, &dev_list);
+	if (ret == MS_MEDIA_ERR_NONE) {
+		if (dev_list != NULL) {
+			MS_DBG_ERR("MMC FOUND[%d]", dev_list->len);
+			int i = 0 ;
+			int dev_num = dev_list->len;
+			ms_block_info_s *block_info = NULL;
+
+			for (i = 0; i < dev_num; i ++) {
+				block_info = (ms_block_info_s *)g_array_index(dev_list , ms_stg_type_e*, i);
+				ms_mmc_insert_handler(block_info->mount_path);
+			}
+
+			ms_sys_release_device_list(&dev_list);
+		} else {
+			MS_DBG_ERR("MMC NOT FOUND");
+			ms_mmc_remove_handler(NULL);
+		}
+	} else {
+		MS_DBG_ERR("ms_sys_get_device_list failed");
+	}
+
+	return MS_MEDIA_ERR_NONE;
+}
+
+static int __ms_check_usb_status(void)
+{
+	int ret = MS_MEDIA_ERR_NONE;
+	ms_stg_type_e stg_type = MS_STG_TYPE_USB;
+	GArray *dev_list = NULL;
+
+	ret = ms_sys_get_device_list(stg_type, &dev_list);
+	if (ret == MS_MEDIA_ERR_NONE) {
+		if (dev_list != NULL) {
+			MS_DBG_ERR("USB FOUND[%d]", dev_list->len);
+			int i = 0 ;
+			int dev_num = dev_list->len;
+			ms_block_info_s *block_info = NULL;
+
+			for (i = 0; i < dev_num; i ++) {
+				block_info = (ms_block_info_s *)g_array_index(dev_list , ms_stg_type_e*, i);
+				ms_usb_insert_handler(block_info->mount_path);
+			}
+
+			ms_sys_release_device_list(&dev_list);
+		} else {
+			MS_DBG_ERR("USB NOT FOUND");
+		}
+	} else {
+		MS_DBG_ERR("ms_sys_get_device_list failed");
+	}
+
+	return MS_MEDIA_ERR_NONE;
 }
 

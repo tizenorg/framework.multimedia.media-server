@@ -19,15 +19,7 @@
  *
  */
 
-/**
- * This file defines api utilities of contents manager engines.
- *
- * @file		media-util-noti.h
- * @author	Yong Yeon Kim(yy9875.kim@samsung.com)
- * @version	1.0
- * @brief
- */
- #ifndef _MEDIA_UTIL_NOTI_H_
+#ifndef _MEDIA_UTIL_NOTI_H_
 #define _MEDIA_UTIL_NOTI_H_
 
 #ifdef __cplusplus

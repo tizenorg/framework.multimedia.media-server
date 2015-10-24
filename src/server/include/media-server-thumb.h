@@ -22,6 +22,7 @@
 #include <glib.h>
 #include <sys/un.h>
 #include <arpa/inet.h>
+#include <iniparser.h>
 #include "media-common-types.h"
 #include "media-server-ipc.h"
 
@@ -30,17 +31,11 @@
 
 #define MAX_THUMB_REQUEST 100
 
-GMainLoop *
-ms_get_thumb_thread_mainloop(void);
-
-int
-ms_thumb_get_server_pid();
-
-void
-ms_thumb_reset_server_status();
-
-gpointer
-ms_thumb_agent_start_thread(gpointer data);
+GMainLoop * ms_get_thumb_thread_mainloop(void);
+int ms_thumb_get_server_pid();
+void ms_thumb_reset_server_status();
+gpointer ms_thumb_agent_start_thread(gpointer data);
+int ms_thumb_get_config();
 
 #endif /*_MEDIA_SERVER_THUMB_H_*/
 
