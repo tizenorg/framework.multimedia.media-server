@@ -249,7 +249,7 @@ int ms_mmc_insert_handler(const char *mount_path)
 	}
 
 	ms_make_default_path_mmc();
-	ms_present_mmc_status(MS_SDCARD_INSERTED, 0);
+	ms_present_mmc_status(MS_SDCARD_INSERTED);
 
 	ms_get_mmc_id(&cid);
 	__ms_get_mmc_info(db_handle, &storage_name, &storage_path, &validity, &info_exist);
@@ -318,7 +318,7 @@ int ms_mmc_remove_handler(const char *mount_path)
 	return MS_MEDIA_ERR_NONE;
 }
 
-void _ms_mmc_changed_event(const char *mount_path, ms_stg_status_e mount_status, int flags)
+void _ms_mmc_changed_event(const char *mount_path, ms_stg_status_e mount_status)
 {
 	/* If scanner is not working, media server executes media scanner and sends request. */
 	/* If scanner is working, it detects changing status of SD card. */
@@ -326,7 +326,7 @@ void _ms_mmc_changed_event(const char *mount_path, ms_stg_status_e mount_status,
 		ms_mmc_insert_handler(mount_path);
 	} else if (mount_status == MS_STG_REMOVED) {
 		/*remove added watch descriptors */
-		ms_present_mmc_status(MS_SDCARD_REMOVED, flags);
+		ms_present_mmc_status(MS_SDCARD_REMOVED);
 		ms_mmc_remove_handler(mount_path);
 	}
 
@@ -352,7 +352,7 @@ void ms_device_block_changed_cb(ms_block_info_s *block_info, void *user_data)
 		_ms_usb_changed_event(block_info->mount_path, block_info->state);
 	} else {
 		MS_DBG_ERR("GET THE MMC EVENT");
-		_ms_mmc_changed_event(block_info->mount_path, block_info->state, block_info->flags);
+		_ms_mmc_changed_event(block_info->mount_path, block_info->state);
 	}
 }
 

@@ -68,7 +68,7 @@ char default_path[][MS_FILE_NAME_LEN_MAX + 1] = {
 
 #define BLOCK_OBJECT_ADDED      "ObjectAdded"
 #define BLOCK_OBJECT_REMOVED    "ObjectRemoved"
-#define BLOCK_DEVICE_CHANGED    "DeviceChanged2"
+#define BLOCK_DEVICE_CHANGED    "DeviceChanged"
 
 GDBusConnection *g_stg_bus;
 int g_stg_added_handler;
@@ -157,7 +157,7 @@ void update_lang(void)
 	}
 }
 
-int ms_present_mmc_status(ms_sdcard_status_type_t status, int flags)
+int ms_present_mmc_status(ms_sdcard_status_type_t status)
 {
 	int ret = NOTIFICATION_ERROR_NONE;
 
@@ -165,10 +165,8 @@ int ms_present_mmc_status(ms_sdcard_status_type_t status, int flags)
 
 	if (status == MS_SDCARD_INSERTED)
 		ret = notification_status_message_post(_GETSYSTEMSTR("IDS_COM_BODY_PREPARING_SD_CARD"));
-	else if (status == MS_SDCARD_REMOVED) {
-		if (flags & MS_SDCARD_REMOVED_UNSAFE)
-			ret = notification_status_message_post(_GETSYSTEMSTR("IDS_COM_BODY_SD_CARD_UNEXPECTEDLY_REMOVED"));
-	}
+	else if (status == MS_SDCARD_REMOVED)
+		ret = notification_status_message_post(_GETSYSTEMSTR("IDS_COM_BODY_SD_CARD_UNEXPECTEDLY_REMOVED"));
 
 	if(ret != NOTIFICATION_ERROR_NONE)
 		return MS_MEDIA_ERR_INTERNAL;
