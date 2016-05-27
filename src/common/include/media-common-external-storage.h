@@ -26,7 +26,7 @@
 void ms_make_default_path_mmc(void);
 
 #ifndef DISABLE_NOTIFICATION
-int ms_present_mmc_status(ms_sdcard_status_type_t status);
+int ms_present_mmc_status(ms_sdcard_status_type_t status, int flags);
 #endif
 
 int ms_get_mmc_id(char **cid);

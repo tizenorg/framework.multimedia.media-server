@@ -69,6 +69,7 @@ typedef enum {
 	MS_SDCARD_INSERTED,    /**< Stored only in phone */
 	MS_SDCARD_REMOVED,	     /**< Stored only in MMC */
 } ms_sdcard_status_type_t;
+#define MS_SDCARD_REMOVED_UNSAFE 0x0001 /* Removed without unmount */
 
 typedef enum {
 	MS_SCAN_INVALID,

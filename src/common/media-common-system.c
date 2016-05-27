@@ -50,9 +50,9 @@
 
 #define BLOCK_OBJECT_ADDED      "ObjectAdded"
 #define BLOCK_OBJECT_REMOVED    "ObjectRemoved"
-#define BLOCK_DEVICE_CHANGED    "DeviceChanged"
+#define BLOCK_DEVICE_CHANGED    "DeviceChanged2"
 
-#define BLOCK_DEVICE_METHOD "GetDeviceList"
+#define BLOCK_DEVICE_METHOD "GetDeviceList2"
 #define BLOCK_DEVICE_USB "scsi"
 #define BLOCK_DEVICE_MMC "mmc"
 #define BLOCK_DEVICE_ALL "all"
@@ -109,6 +109,10 @@ static void __ms_block_changed(GDBusConnection* connection,
 	tmp = g_variant_get_child_value(parameters, 9);
 	block_info->state = g_variant_get_int32 (tmp);
 	MS_DBG_ERR("state : %d", block_info->state);
+
+	tmp = g_variant_get_child_value(parameters, 11);
+	block_info->flags = g_variant_get_int32 (tmp);
+	MS_DBG_ERR("flags : %d", block_info->flags);
 
 	((block_changed_cb)usr_cb)(block_info, usr_data);
 	MS_SAFE_FREE(block_info->mount_path);
@@ -302,6 +306,11 @@ static int __ms_dbus_method_sync(const char *dest, const char *path,
 		dbus_message_iter_next(&piter);
 		dbus_message_iter_get_basic(&piter, &val_bool);
 		MS_DBG("\tprimary(%d)", val_bool ? "true" : "false");
+
+		dbus_message_iter_next(&piter);
+		dbus_message_iter_get_basic(&piter, &val_int);
+		MS_DBG("\tflags(%d)", val_int);
+		data->flags = val_int;
 
 		dbus_message_iter_next(&aiter);
 
